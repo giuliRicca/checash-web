@@ -35,6 +35,8 @@ export function AuthProvider({ children }: AuthProviderProps): JSX.Element {
   const [hasLoadedToken, setHasLoadedToken] = useState(false);
 
   useEffect(() => {
+    // Server render cannot read local storage; hydrate session after mounting.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setToken(getStoredToken());
     setHasLoadedToken(true);
   }, []);

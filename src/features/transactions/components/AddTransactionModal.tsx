@@ -91,7 +91,7 @@ export function AddTransactionModal({ onClose }: AddTransactionModalProps): JSX.
       await createTransactionMutation.mutateAsync({
         account_id: accountId,
         category_id: categoryId,
-        amount: parsedAmount,
+        amount: parseMoneyInput(amount),
         type: transactionType,
         description: description.trim() === '' ? null : description.trim(),
       });
@@ -99,7 +99,7 @@ export function AddTransactionModal({ onClose }: AddTransactionModalProps): JSX.
     } catch (caughtError) {
       setError(caughtError instanceof ApiError ? caughtError.detail : 'Could not save transaction');
     }
-  }, [accountId, canSubmit, categoryId, createTransactionMutation, description, onClose, parsedAmount, transactionType]);
+  }, [accountId, amount, canSubmit, categoryId, createTransactionMutation, description, onClose, transactionType]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-background/80 p-0 backdrop-blur-sm sm:items-center sm:p-4" role="presentation" onMouseDown={isDirty ? undefined : handleClose}>

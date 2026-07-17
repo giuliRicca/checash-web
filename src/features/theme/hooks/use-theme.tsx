@@ -69,6 +69,8 @@ export function ThemeProvider({ children }: ThemeProviderProps): JSX.Element {
     const storedMode = getStoredThemeMode();
     const resolved = resolveTheme(storedMode);
 
+    // Server render cannot read theme storage; hydrate after mounting.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setModeState(storedMode);
     setResolvedTheme(resolved);
     applyResolvedTheme(resolved);

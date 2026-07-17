@@ -137,12 +137,6 @@ function AccountEditModal({ account, onClose }: AccountEditModalProps): JSX.Elem
   const canSubmit = trimmedName.length > 0 && hasChanges && !updateAccount.isPending;
   const isDirty = hasChanges || error !== null;
 
-  useEffect(() => {
-    setName(account.name);
-    setRateType(account.rate_type);
-    setError(null);
-  }, [account.name, account.rate_type]);
-
   const handleClose = useCallback((): void => {
     if (!updateAccount.isPending) {
       onClose();
