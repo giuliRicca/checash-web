@@ -1,42 +1,61 @@
 'use client';
 
-import { ArrowDownLeft, ArrowUpRight, Check, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { ApiError } from '@/lib/api/errors';
+import { formatMoneyInput, isValidMoneyInput, parseMoneyInput } from '@/lib/money/format';
 import { cn } from '@/lib/ui/cn';
 import { Button, Field, fieldControlClassName } from '~components/ui';
 import { useAccountsQuery } from '~features/accounts';
+import { useAuth } from '~features/auth';
 import { useCategoriesQuery } from '~features/categories';
 import { useCreateTransactionMutation } from '~features/transactions/hooks/use-create-transaction';
-import type { TransactionType } from '~types/api';
+import type { CategoryRead, TransactionType } from '~types/api';
 
 interface AddTransactionModalProps {
   onClose: () => void;
 }
 
+function requireToken(token: string | null): string {
+  if (token === null) {
+    throw new Error('Add transaction requires an authenticated session');
+  }
+  return token;
+}
+
+function fallbackCategoryId(categories: CategoryRead[], transactionType: TransactionType): string {
+  const fallbackSlug = transactionType === 'expense' ? 'miscellaneous' : 'uncategorized-income';
+  return categories.find((category) => category.type === transactionType && category.slug === fallbackSlug)?.id
+    ?? categories.find((category) => category.type === transactionType)?.id
+    ?? '';
+}
+
 export function AddTransactionModal({ onClose }: AddTransactionModalProps): JSX.Element {
-  const { data: accounts } = useAccountsQuery();
-  const { data: categories } = useCategoriesQuery();
+  const { token, user } = useAuth();
+  const authToken = requireToken(token);
+  if (user === null) throw new Error('Transactions require current user');
+
+  const { data: accounts } = useAccountsQuery(authToken, user.id);
+  const { data: categories } = useCategoriesQuery(authToken, user.id);
   const createTransactionMutation = useCreateTransactionMutation();
   const [transactionType, setTransactionType] = useState<TransactionType>('expense');
   const [amount, setAmount] = useState('');
   const [accountId, setAccountId] = useState(accounts[0]?.id ?? '');
-  const [categoryId, setCategoryId] = useState(categories[0]?.id ?? '');
+  const [categoryId, setCategoryId] = useState(fallbackCategoryId(categories, 'expense'));
   const [description, setDescription] = useState('');
   const [hasSubmitted, setHasSubmitted] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const amountInputRef = useRef<HTMLInputElement>(null);
   const trimmedAmount = amount.trim();
-  const amountValue = Number(trimmedAmount);
-  const isAmountValid = trimmedAmount.length > 0 && Number.isFinite(amountValue) && amountValue > 0;
+  const parsedAmount = parseMoneyInput(trimmedAmount);
+  const visibleCategories = categories.filter((category) => category.type === transactionType);
+  const isAmountValid = isValidMoneyInput(trimmedAmount);
   const amountError = hasSubmitted && !isAmountValid ? 'Enter an amount greater than 0.' : null;
   const canSubmit = isAmountValid && accountId.length > 0 && categoryId.length > 0 && !createTransactionMutation.isPending;
-  const selectedAccount = accounts.find((account) => account.id === accountId) ?? null;
-  const directionLabel = transactionType === 'expense' ? 'Money out' : 'Money in';
   const amountPrefix = transactionType === 'expense' ? '-' : '+';
   const submitLabel = createTransactionMutation.isPending ? 'Saving...' : `Save ${transactionType}`;
-  const isDirty = trimmedAmount.length > 0 || description.trim().length > 0 || transactionType !== 'expense' || accountId !== (accounts[0]?.id ?? '') || categoryId !== (categories[0]?.id ?? '');
+  const isDirty = trimmedAmount.length > 0 || description.trim().length > 0 || transactionType !== 'expense' || accountId !== (accounts[0]?.id ?? '') || categoryId !== fallbackCategoryId(categories, 'expense');
 
   const handleClose = useCallback((): void => {
     if (!createTransactionMutation.isPending) {
@@ -72,7 +91,7 @@ export function AddTransactionModal({ onClose }: AddTransactionModalProps): JSX.
       await createTransactionMutation.mutateAsync({
         account_id: accountId,
         category_id: categoryId,
-        amount: trimmedAmount,
+        amount: parsedAmount,
         type: transactionType,
         description: description.trim() === '' ? null : description.trim(),
       });
@@ -80,7 +99,7 @@ export function AddTransactionModal({ onClose }: AddTransactionModalProps): JSX.
     } catch (caughtError) {
       setError(caughtError instanceof ApiError ? caughtError.detail : 'Could not save transaction');
     }
-  }, [accountId, canSubmit, categoryId, createTransactionMutation, description, onClose, transactionType, trimmedAmount]);
+  }, [accountId, canSubmit, categoryId, createTransactionMutation, description, onClose, parsedAmount, transactionType]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-background/80 p-0 backdrop-blur-sm sm:items-center sm:p-4" role="presentation" onMouseDown={isDirty ? undefined : handleClose}>
@@ -95,8 +114,8 @@ export function AddTransactionModal({ onClose }: AddTransactionModalProps): JSX.
           <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-border-strong sm:hidden" aria-hidden="true" />
           <div className="flex items-start justify-between gap-4">
           <div>
-            <h2 id="add-transaction-title" className="mt-1 text-2xl font-semibold text-foreground">Add transaction</h2>
-            <p className="mt-2 text-sm text-muted">Choose money in or out, then fill the details.</p>
+            <h2 id="add-transaction-title" className="mt-1 text-2xl font-semibold text-foreground">Add {transactionType}</h2>
+            <p className="mt-2 text-sm text-muted">Amount, account, category. Done.</p>
           </div>
           <Button variant="ghost" size="icon" type="button" aria-label="Close add transaction" onClick={handleClose} disabled={createTransactionMutation.isPending}>
             <X size={18} />
@@ -106,24 +125,10 @@ export function AddTransactionModal({ onClose }: AddTransactionModalProps): JSX.
 
         <form className="flex min-h-0 flex-1 flex-col" onSubmit={handleSubmit}>
           <div className="flex flex-1 flex-col gap-4 overflow-y-auto px-4 py-5 sm:px-6">
-          <div className="grid gap-3 sm:grid-cols-2" role="group" aria-label="Transaction type">
-            <TransactionTypeOption
-              description="Purchases, bills, or any money leaving an account."
-              icon={<ArrowDownLeft size={20} />}
-              isSelected={transactionType === 'expense'}
-              label="Expense"
-              tone="danger"
-              onSelect={() => setTransactionType('expense')}
-            />
-            <TransactionTypeOption
-              description="Salary, refunds, or any money added to an account."
-              icon={<ArrowUpRight size={20} />}
-              isSelected={transactionType === 'income'}
-              label="Income"
-              tone="success"
-              onSelect={() => setTransactionType('income')}
-            />
-          </div>
+          <TransactionTypeSegment value={transactionType} onChange={(type) => {
+            setTransactionType(type);
+            setCategoryId(fallbackCategoryId(categories, type));
+          }} />
 
           <Field>
             <Field.Label>Amount</Field.Label>
@@ -140,17 +145,13 @@ export function AddTransactionModal({ onClose }: AddTransactionModalProps): JSX.
                 placeholder="0.00"
                 value={amount}
                 onChange={(event) => setAmount(event.target.value)}
+                onBlur={() => setAmount((currentAmount) => formatMoneyInput(currentAmount))}
                 aria-invalid={amountError !== null}
-                aria-describedby={amountError !== null ? 'transaction-amount-error' : 'transaction-amount-help'}
+                aria-describedby={amountError !== null ? 'transaction-amount-error' : undefined}
               />
             </div>
             {amountError !== null ? <Field.Error className="mt-1" id="transaction-amount-error">{amountError}</Field.Error> : null}
-            {amountError === null ? <span className="text-sm text-muted-foreground" id="transaction-amount-help">Saved as a positive amount. {directionLabel} controls the balance change.</span> : null}
           </Field>
-
-          <div className="rounded-xl border border-border bg-surface-elevated px-4 py-3 text-sm text-muted">
-            {selectedAccount === null ? 'Select an account to preview the balance direction.' : `${amountPrefix} ${trimmedAmount || '0.00'} ${selectedAccount.currency} will be applied to ${selectedAccount.name}.`}
-          </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
 
@@ -164,7 +165,7 @@ export function AddTransactionModal({ onClose }: AddTransactionModalProps): JSX.
             <Field>
               <Field.Label>Category</Field.Label>
               <select className={fieldControlClassName} value={categoryId} onChange={(event) => setCategoryId(event.target.value)}>
-                {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
+                {visibleCategories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
               </select>
             </Field>
           </div>
@@ -175,7 +176,7 @@ export function AddTransactionModal({ onClose }: AddTransactionModalProps): JSX.
           </Field>
 
           {accounts.length === 0 ? <p className="rounded-xl border border-warning/40 bg-warning-muted px-4 py-3 text-sm text-warning">Create an account before adding transactions.</p> : null}
-          {categories.length === 0 ? <p className="rounded-xl border border-warning/40 bg-warning-muted px-4 py-3 text-sm text-warning">Create a category before adding transactions.</p> : null}
+           {visibleCategories.length === 0 ? <p className="rounded-xl border border-warning/40 bg-warning-muted px-4 py-3 text-sm text-warning">Create a {transactionType} category before adding transactions.</p> : null}
           {error !== null ? <p className="rounded-xl border border-danger/40 bg-danger-muted px-4 py-3 text-sm text-danger" role="alert">{error}</p> : null}
           </div>
 
@@ -189,42 +190,29 @@ export function AddTransactionModal({ onClose }: AddTransactionModalProps): JSX.
   );
 }
 
-interface TransactionTypeOptionProps {
-  description: string;
-  icon: JSX.Element;
-  isSelected: boolean;
-  label: string;
-  tone: 'danger' | 'success';
-  onSelect: () => void;
+interface TransactionTypeSegmentProps {
+  value: TransactionType;
+  onChange: (value: TransactionType) => void;
 }
 
-function TransactionTypeOption({ description, icon, isSelected, label, tone, onSelect }: TransactionTypeOptionProps): JSX.Element {
-  const toneClasses = tone === 'danger'
-    ? 'border-danger/60 bg-danger-muted text-danger'
-    : 'border-success/60 bg-success-muted text-success';
-
+function TransactionTypeSegment({ value, onChange }: TransactionTypeSegmentProps): JSX.Element {
   return (
-    <button
-      className={cn(
-        'min-h-28 cursor-pointer rounded-2xl border p-4 text-left transition hover:border-primary/70 hover:bg-surface-elevated focus:outline-none focus:ring-2 focus:ring-primary/60 active:scale-[0.99]',
-        isSelected ? toneClasses : 'border-border-strong bg-background text-muted',
-      )}
-      type="button"
-      aria-pressed={isSelected}
-      onClick={onSelect}
-    >
-      <span className="flex items-start justify-between gap-3">
-        <span className="flex items-center gap-3">
-          <span className="flex size-10 items-center justify-center rounded-xl border border-current/20 bg-current/10">{icon}</span>
-          <span>
-            <span className="block text-base font-semibold text-foreground">{label}</span>
-            <span className="mt-1 block text-sm font-medium">{tone === 'danger' ? 'Money out' : 'Money in'}</span>
-          </span>
-        </span>
-        {isSelected ? <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-current/15"><Check size={16} /></span> : null}
-      </span>
-      <span className="mt-4 block text-sm leading-5 text-muted">{description}</span>
-    </button>
+    <div className="grid grid-cols-2 rounded-2xl border border-border-strong bg-background p-1" role="group" aria-label="Transaction type">
+      {(['expense', 'income'] as const).map((type) => (
+        <button
+          className={cn(
+            'min-h-11 rounded-xl px-4 text-sm font-bold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60',
+            type === value ? 'bg-primary text-primary-foreground' : 'text-muted hover:bg-surface-muted hover:text-foreground',
+          )}
+          key={type}
+          type="button"
+          aria-pressed={type === value}
+          onClick={() => onChange(type)}
+        >
+          {type === 'expense' ? 'Expense' : 'Income'}
+        </button>
+      ))}
+    </div>
   );
 }
 

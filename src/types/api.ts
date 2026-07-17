@@ -1,6 +1,6 @@
 export type Currency = 'ARS' | 'USD';
 
-export type RateType = 'blue' | 'mep' | 'tarjeta';
+export type RateType = 'oficial' | 'blue' | 'mep' | 'tarjeta' | 'crypto';
 
 export type TransactionType = 'expense' | 'income';
 
@@ -16,11 +16,26 @@ export interface UserRead {
   default_category_id: string | null;
 }
 
+export interface UserPreferencesUpdate {
+  default_account_id?: string | null;
+  default_category_id?: string | null;
+}
+
+export interface UserPreferencesRead {
+  default_account_id: string | null;
+  default_category_id: string | null;
+}
+
 export interface AccountCreate {
   name: string;
   currency: Currency;
   opening_balance: string;
   rate_type: RateType;
+}
+
+export interface AccountUpdate {
+  name?: string;
+  rate_type?: RateType;
 }
 
 export interface AccountRead {
@@ -43,7 +58,17 @@ export interface CategoryRead {
   user_id: string | null;
   name: string;
   slug: string;
+  type: TransactionType;
   is_system: boolean;
+}
+
+export interface CategoryCreate {
+  name: string;
+  type: TransactionType;
+}
+
+export interface CategoryUpdate {
+  name: string;
 }
 
 export interface ExchangeDetailsDraft {
@@ -78,6 +103,40 @@ export interface TransactionRead {
   type: TransactionType;
   description: string | null;
   created_at: string;
+}
+
+export interface TransactionMonthSummaryRead {
+  month_start: string;
+  month_end: string;
+  income_ars: string;
+  income_usd: string;
+  expense_ars: string;
+  expense_usd: string;
+}
+
+export interface ActivityItem {
+  kind: string;
+  id: string;
+  created_at: string;
+  account_id: string | null;
+  source_account_id: string | null;
+  destination_account_id: string | null;
+  amount: string | null;
+  currency: Currency | null;
+  source_amount: string | null;
+  source_currency: Currency | null;
+  destination_amount: string | null;
+  destination_currency: Currency | null;
+  rate_used: string | null;
+  transaction_type: TransactionType | null;
+  category_id: string | null;
+  category_name: string | null;
+  description: string | null;
+}
+
+export interface ActivityFeed {
+  items: ActivityItem[];
+  next_cursor: string | null;
 }
 
 export interface TransactionCreate {

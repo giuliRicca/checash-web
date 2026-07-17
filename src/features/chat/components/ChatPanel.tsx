@@ -9,6 +9,7 @@ import { Button, Panel, fieldControlClassName } from '~components/ui';
 import { accountsQueryKey, netWorthQueryKey } from '~features/accounts';
 import { chatApi } from '~features/chat/api/chat-api';
 import { DraftCard } from '~features/chat/components/DraftCard';
+import { monthSummaryQueryKey } from '~features/transactions';
 import type { AccountRead, CategoryRead, ChatDraft, Message } from '~types/api';
 
 interface ChatPanelProps {
@@ -37,6 +38,7 @@ export function ChatPanel({ accounts, categories }: ChatPanelProps): JSX.Element
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: accountsQueryKey }),
         queryClient.invalidateQueries({ queryKey: netWorthQueryKey }),
+        queryClient.invalidateQueries({ queryKey: monthSummaryQueryKey }),
       ]);
     },
   });

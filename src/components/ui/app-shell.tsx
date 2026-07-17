@@ -78,6 +78,7 @@ export function AppShell({ children, onLogout }: AppShellProps): JSX.Element {
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const isDark = state.resolvedTheme === 'dark';
   const themeLabel = isDark ? 'Switch to light mode' : 'Switch to dark mode';
+  const isAccountsActive = pathname === '/accounts' || pathname.startsWith('/accounts/');
 
   function handleLogout(): void {
     setIsUserMenuOpen(false);
@@ -92,7 +93,7 @@ export function AppShell({ children, onLogout }: AppShellProps): JSX.Element {
       <header className="sticky top-0 z-20 border-b border-border bg-background/95 backdrop-blur">
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-4 px-5 sm:px-8">
           <div className="flex items-center gap-3">
-            <div className="flex size-9 items-center justify-center rounded-xl bg-brand text-lg font-bold text-brand-foreground shadow-sm shadow-brand/30">$</div>
+            <div className="flex size-9 items-center justify-center rounded-xl bg-primary text-lg font-bold text-primary-foreground shadow-sm shadow-primary/30">$</div>
             <span className="text-xl font-bold tracking-tight text-foreground">CheCash</span>
           </div>
 
@@ -100,7 +101,7 @@ export function AppShell({ children, onLogout }: AppShellProps): JSX.Element {
             <NavItem href="/" icon={<LayoutDashboard size={16} />} label="Dashboard" isActive={pathname === '/'} />
             <NavItem href="/chat" icon={<MessageCircle size={16} />} label="Chat" isActive={pathname === '/chat'} />
             <NavItem icon={<BarChart3 size={16} />} label="Budgets" />
-            <NavItem icon={<Landmark size={16} />} label="Accounts" />
+            <NavItem href="/accounts" icon={<Landmark size={16} />} label="Accounts" isActive={isAccountsActive} />
           </nav>
 
           <div className="flex items-center gap-2">
@@ -150,7 +151,7 @@ export function AppShell({ children, onLogout }: AppShellProps): JSX.Element {
         {children}
       </main>
       <button
-        className="fixed bottom-[calc(4.75rem+env(safe-area-inset-bottom))] left-1/2 z-30 flex size-14 -translate-x-1/2 touch-manipulation items-center justify-center rounded-2xl bg-brand text-brand-foreground shadow-2xl shadow-brand/30 transition duration-200 hover:bg-brand/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background active:scale-95 lg:hidden"
+        className="fixed bottom-[calc(4.75rem+env(safe-area-inset-bottom))] left-1/2 z-30 flex size-14 -translate-x-1/2 touch-manipulation items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-2xl shadow-primary/30 transition duration-200 hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background active:scale-95 sm:hidden"
         type="button"
         aria-label="Add transaction"
         onClick={openAddTransactionModal}
@@ -162,7 +163,7 @@ export function AppShell({ children, onLogout }: AppShellProps): JSX.Element {
           <MobileNavItem href="/" icon={<LayoutDashboard size={18} />} label="Home" isActive={pathname === '/'} />
           <MobileNavItem href="/chat" icon={<MessageCircle size={18} />} label="Chat" isActive={pathname === '/chat'} />
           <MobileNavItem icon={<BarChart3 size={18} />} label="Budget" />
-          <MobileNavItem icon={<Landmark size={18} />} label="Accounts" />
+          <MobileNavItem href="/accounts" icon={<Landmark size={18} />} label="Accounts" isActive={isAccountsActive} />
         </div>
       </nav>
     </div>

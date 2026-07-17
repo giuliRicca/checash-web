@@ -1,29 +1,46 @@
 'use client';
 
-import { Suspense } from 'react';
-import { Plus } from 'lucide-react';
+import { Suspense, useCallback, useState } from 'react';
 
 import { SuspenseLoader } from '~components/SuspenseLoader';
-import { Button } from '~components/ui';
+import { formatMoneyWithCurrency } from '@/lib/money/format';
 import { AuthenticatedApp, useAuth } from '~features/auth';
-import { AccountsOverview, FirstAccountOnboarding, useAccountsQuery, useNetWorthQuery } from '~features/accounts';
-import { useAddTransaction } from '~features/transactions';
-import type { NetWorthRead } from '~types/api';
+import { AccountCreateModal, AccountsOverview, FirstAccountOnboarding, useAccountsQuery, useNetWorthQuery } from '~features/accounts';
+import { useMonthSummaryQuery } from '~features/transactions';
+import type { Currency, NetWorthRead, TransactionMonthSummaryRead } from '~types/api';
 
-function formatMoney(value: string, currency: string): string {
-  return `${currency} ${Number(value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+function requireToken(token: string | null, feature: string): string {
+  if (token === null) {
+    throw new Error(`${feature} requires an authenticated session`);
+  }
+  return token;
 }
 
 function DashboardContent(): JSX.Element {
-  const { data: accounts } = useAccountsQuery();
-  const { data: netWorth } = useNetWorthQuery();
+  const { token, user } = useAuth();
+  const authToken = requireToken(token, 'Dashboard');
+  if (user === null) throw new Error('Dashboard requires current user');
+
+  const { data: accounts } = useAccountsQuery(authToken, user.id);
+  const { data: netWorth } = useNetWorthQuery(authToken, user.id);
+  const { data: monthSummary } = useMonthSummaryQuery(authToken, user.id);
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+
+  const handleOpenCreateModal = useCallback((): void => {
+    setIsCreateModalOpen(true);
+  }, []);
+
+  const handleCloseCreateModal = useCallback((): void => {
+    setIsCreateModalOpen(false);
+  }, []);
 
   return (
     <div className="flex w-full flex-col gap-8 pb-20 lg:pb-0">
       <DashboardHeader />
-      <BalanceHero netWorth={netWorth} accountCount={accounts.length} />
-      <AccountsOverview accounts={accounts} netWorth={netWorth} />
-      {accounts.length === 0 ? <FirstAccountOnboarding /> : null}
+      <DashboardSummary netWorth={netWorth} monthSummary={monthSummary} accountCount={accounts.length} />
+      <AccountsOverview accounts={accounts} />
+      {accounts.length === 0 ? <FirstAccountOnboarding onCreateAccount={handleOpenCreateModal} /> : null}
+      {isCreateModalOpen ? <AccountCreateModal onClose={handleCloseCreateModal} /> : null}
     </div>
   );
 }
@@ -35,7 +52,7 @@ function DashboardHeader(): JSX.Element {
   return (
     <header className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
       <div>
-        <p className="text-sm font-semibold text-brand">CheCash overview</p>
+        <p className="text-sm font-semibold text-primary">CheCash overview</p>
         <h1 className="mt-1 text-3xl font-bold tracking-tight text-foreground sm:text-4xl">Hi, {name}</h1>
         <p className="mt-2 text-base text-muted">Balances, accounts, and quick capture in one place.</p>
       </div>
@@ -43,40 +60,100 @@ function DashboardHeader(): JSX.Element {
   );
 }
 
-interface BalanceHeroProps {
+interface DashboardSummaryProps {
   netWorth: NetWorthRead;
+  monthSummary: TransactionMonthSummaryRead;
   accountCount: number;
 }
 
-function BalanceHero({ netWorth, accountCount }: BalanceHeroProps): JSX.Element {
-  const { openAddTransactionModal } = useAddTransaction();
+function DashboardSummary({ netWorth, monthSummary, accountCount }: DashboardSummaryProps): JSX.Element {
+  const [currency, setCurrency] = useState<Currency>('ARS');
+  const netWorthValue = currency === 'ARS' ? netWorth.total_ars : netWorth.total_usd;
+  const incomeValue = currency === 'ARS' ? monthSummary.income_ars : monthSummary.income_usd;
+  const expenseValue = currency === 'ARS' ? monthSummary.expense_ars : monthSummary.expense_usd;
 
+  return (
+    <section className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
+      <NetWorthCard
+        accountCount={accountCount}
+        currency={currency}
+        value={netWorthValue}
+        onCurrencyChange={setCurrency}
+      />
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-1">
+        <MonthlyFlowCard label="Income this month" tone="success" value={formatMoneyWithCurrency(incomeValue, currency)} />
+        <MonthlyFlowCard label="Expenses this month" tone="danger" value={formatMoneyWithCurrency(expenseValue, currency)} />
+      </div>
+    </section>
+  );
+}
+
+interface NetWorthCardProps {
+  accountCount: number;
+  currency: Currency;
+  value: string;
+  onCurrencyChange: (currency: Currency) => void;
+}
+
+function NetWorthCard({ accountCount, currency, value, onCurrencyChange }: NetWorthCardProps): JSX.Element {
   return (
     <section className="overflow-hidden rounded-3xl border border-primary/30 bg-primary text-primary-foreground shadow-xl shadow-primary/10">
       <div className="relative p-5 sm:p-7">
-        <div className="absolute right-4 top-4 size-24 rounded-full bg-brand/25 blur-2xl" aria-hidden="true" />
+        <div className="absolute right-4 top-4 size-24 rounded-full bg-primary-foreground/15 blur-2xl" aria-hidden="true" />
         <div className="relative flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <p className="text-sm font-semibold text-primary-foreground/75">Total picture</p>
-            <div className="mt-3 grid gap-3 sm:grid-cols-2">
-              <div>
-                <p className="text-xs uppercase tracking-[0.2em] text-primary-foreground/65">ARS</p>
-                <p className="mt-1 text-3xl font-bold tracking-tight">{formatMoney(netWorth.total_ars, 'ARS')}</p>
-              </div>
-              <div>
-                <p className="text-xs uppercase tracking-[0.2em] text-primary-foreground/65">USD</p>
-                <p className="mt-1 text-3xl font-bold tracking-tight">{formatMoney(netWorth.total_usd, 'USD')}</p>
-              </div>
+          <div className="w-full">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="text-sm font-semibold text-primary-foreground/75">Total net worth</p>
+              <CurrencyToggle value={currency} onChange={onCurrencyChange} />
             </div>
+            <p className="mt-4 break-words text-4xl font-bold tracking-tight sm:text-5xl">{formatMoneyWithCurrency(value, currency)}</p>
             <p className="mt-4 text-sm text-primary-foreground/75">{accountCount} {accountCount === 1 ? 'account' : 'accounts'} connected</p>
           </div>
-          <Button className="bg-brand text-brand-foreground hover:bg-brand/90 sm:min-w-44" type="button" onClick={openAddTransactionModal}>
-            <Plus size={18} />
-            Add movement
-          </Button>
         </div>
       </div>
     </section>
+  );
+}
+
+interface CurrencyToggleProps {
+  value: Currency;
+  onChange: (currency: Currency) => void;
+}
+
+function CurrencyToggle({ value, onChange }: CurrencyToggleProps): JSX.Element {
+  return (
+    <div className="grid grid-cols-2 rounded-2xl border border-primary-foreground/20 bg-primary-foreground/10 p-1" aria-label="Net worth currency">
+      {(['ARS', 'USD'] as const).map((currency) => (
+        <button
+          className={currency === value ? 'min-h-11 rounded-xl bg-primary-foreground px-4 text-xs font-bold text-primary' : 'min-h-11 rounded-xl px-4 text-xs font-bold text-primary-foreground/75 transition hover:text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-foreground/70'}
+          key={currency}
+          type="button"
+          aria-pressed={currency === value}
+          onClick={() => onChange(currency)}
+        >
+          {currency}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+interface MonthlyFlowCardProps {
+  label: string;
+  tone: 'success' | 'danger';
+  value: string;
+}
+
+function MonthlyFlowCard({ label, tone, value }: MonthlyFlowCardProps): JSX.Element {
+  const toneClassName = tone === 'success'
+    ? 'text-success bg-success-muted border-success/30'
+    : 'text-danger bg-danger-muted border-danger/30';
+
+  return (
+    <article className="rounded-3xl border border-border bg-surface p-5 shadow-sm">
+      <div className={`inline-flex rounded-full border px-3 py-1 text-xs font-bold ${toneClassName}`}>{label}</div>
+      <p className="mt-4 break-words text-2xl font-bold tracking-tight text-foreground sm:text-3xl">{value}</p>
+    </article>
   );
 }
 

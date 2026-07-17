@@ -23,10 +23,6 @@
   --primary-muted: 221 83% 94%;
   --primary-foreground: 0 0% 100%;
 
-  --brand: 38 92% 50%;
-  --brand-muted: 38 92% 92%;
-  --brand-foreground: 222 47% 8%;
-
   --success: 160 84% 39%;
   --success-muted: 160 84% 14%;
   --danger: 346 77% 49%;
@@ -56,10 +52,6 @@
   --primary: 217 91% 60%;
   --primary-muted: 221 83% 16%;
   --primary-foreground: 0 0% 100%;
-
-  --brand: 38 92% 50%;
-  --brand-muted: 38 92% 12%;
-  --brand-foreground: 222 47% 8%;
 
   --success: 160 84% 39%;
   --success-muted: 160 84% 12%;
@@ -96,7 +88,7 @@ textarea {
 }
 
 ::selection {
-  background: hsl(var(--brand) / 0.35);
+  background: hsl(var(--primary) / 0.35);
 }
 
 @media (prefers-reduced-motion: reduce) {

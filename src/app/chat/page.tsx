@@ -4,13 +4,24 @@ import { Suspense } from 'react';
 
 import { SuspenseLoader } from '~components/SuspenseLoader';
 import { useAccountsQuery } from '~features/accounts';
-import { AuthenticatedApp } from '~features/auth';
+import { AuthenticatedApp, useAuth } from '~features/auth';
 import { ChatPanel } from '~features/chat';
 import { useCategoriesQuery } from '~features/categories';
 
+function requireToken(token: string | null): string {
+  if (token === null) {
+    throw new Error('Chat requires an authenticated session');
+  }
+  return token;
+}
+
 function ChatContent(): JSX.Element {
-  const { data: accounts } = useAccountsQuery();
-  const { data: categories } = useCategoriesQuery();
+  const { token, user } = useAuth();
+  const authToken = requireToken(token);
+  if (user === null) throw new Error('Chat requires current user');
+
+  const { data: accounts } = useAccountsQuery(authToken, user.id);
+  const { data: categories } = useCategoriesQuery(authToken, user.id);
 
   return (
     <div className="flex w-full flex-col gap-8 pb-20 lg:pb-0">

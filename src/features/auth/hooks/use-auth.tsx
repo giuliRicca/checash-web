@@ -5,6 +5,7 @@ import type { ReactNode } from 'react';
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 
 import { clearStoredToken, getStoredToken, setStoredToken } from '@/lib/auth/token-store';
+import { onUnauthorized } from '@/lib/api/client';
 import { authApi } from '~features/auth/api/auth-api';
 import type { UserRead } from '~types/api';
 
@@ -38,19 +39,18 @@ export function AuthProvider({ children }: AuthProviderProps): JSX.Element {
     setHasLoadedToken(true);
   }, []);
 
+  useEffect(() => onUnauthorized(() => {
+    clearStoredToken();
+    setToken(null);
+    queryClient.clear();
+  }), [queryClient]);
+
   const meQuery = useQuery({
-    queryKey: ['auth', 'me', token],
+    queryKey: ['auth', 'me'],
     queryFn: () => authApi.me(token ?? ''),
     enabled: token !== null,
     retry: false,
   });
-
-  useEffect(() => {
-    if (meQuery.error !== null) {
-      clearStoredToken();
-      setToken(null);
-    }
-  }, [meQuery.error]);
 
   const loginMutation = useMutation({
     mutationFn: authApi.login,

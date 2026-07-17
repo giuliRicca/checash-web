@@ -1,7 +1,13 @@
-import { clearStoredToken, getStoredToken } from '@/lib/auth/token-store';
+import { getStoredToken } from '@/lib/auth/token-store';
 import { ApiError, getErrorDetail } from '@/lib/api/errors';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:8000/api';
+const unauthorizedListeners = new Set<() => void>();
+
+export function onUnauthorized(listener: () => void): () => void {
+  unauthorizedListeners.add(listener);
+  return () => unauthorizedListeners.delete(listener);
+}
 
 type HttpMethod = 'GET' | 'POST' | 'PATCH' | 'DELETE';
 
@@ -15,7 +21,7 @@ export async function apiRequest<TResponse, TBody = unknown>(
   path: string,
   options: ApiRequestOptions<TBody> = {},
 ): Promise<TResponse> {
-  const token = options.token ?? getStoredToken();
+  const token = options.token === undefined ? getStoredToken() : options.token;
   const headers = new Headers({ Accept: 'application/json' });
 
   if (options.body !== undefined) {
@@ -32,7 +38,7 @@ export async function apiRequest<TResponse, TBody = unknown>(
   });
 
   if (response.status === 401) {
-    clearStoredToken();
+    unauthorizedListeners.forEach((listener) => listener());
   }
 
   if (!response.ok) {
