@@ -1,5 +1,5 @@
 import { apiRequest } from '@/lib/api/client';
-import type { TransactionCreate, TransactionMonthSummaryRead, TransactionRead } from '~types/api';
+import type { TransactionCreate, TransactionMonthSummaryRead, TransactionRead, TransactionUpdate } from '~types/api';
 
 export const transactionsApi = {
   monthSummary(token?: string | null): Promise<TransactionMonthSummaryRead> {
@@ -10,5 +10,11 @@ export const transactionsApi = {
       method: 'POST',
       body: payload,
     });
+  },
+  update(transactionId: string, payload: TransactionUpdate): Promise<TransactionRead> {
+    return apiRequest<TransactionRead, TransactionUpdate>(`/transactions/${transactionId}`, { method: 'PATCH', body: payload });
+  },
+  delete(transactionId: string): Promise<void> {
+    return apiRequest<void>(`/transactions/${transactionId}`, { method: 'DELETE' });
   },
 };

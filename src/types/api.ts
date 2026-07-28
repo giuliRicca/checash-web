@@ -12,8 +12,19 @@ export interface TokenResponse {
 export interface UserRead {
   id: string;
   email: string;
+  display_name: string | null;
   default_account_id: string | null;
   default_category_id: string | null;
+}
+
+export interface UserProfileUpdate {
+  email: string;
+  display_name: string | null;
+}
+
+export interface PasswordChange {
+  current_password: string;
+  new_password: string;
 }
 
 export interface UserPreferencesUpdate {
@@ -38,6 +49,12 @@ export interface AccountUpdate {
   rate_type?: RateType;
 }
 
+export interface AccountAdjustmentCreate {
+  target_balance: string;
+  description?: string | null;
+  occurred_at?: string;
+}
+
 export interface AccountRead {
   id: string;
   name: string;
@@ -51,6 +68,17 @@ export interface AccountRead {
 export interface NetWorthRead {
   total_ars: string;
   total_usd: string;
+}
+
+export interface NetWorthHistoryPointRead {
+  date: string;
+  total_ars: string;
+  total_usd: string;
+}
+
+export interface NetWorthHistoryRead {
+  month_start: string;
+  points: NetWorthHistoryPointRead[];
 }
 
 export interface CategoryRead {
@@ -90,6 +118,7 @@ export interface ChatDraft {
   is_exchange: boolean;
   exchange_details: ExchangeDetailsDraft | null;
   needs_review: boolean;
+  occurred_at: string | null;
 }
 
 export interface TransactionRead {
@@ -98,11 +127,14 @@ export interface TransactionRead {
   category_id: string;
   category_name_snapshot: string;
   amount: string;
+  account_amount: string;
   currency: Currency;
   rate_used: string | null;
+  is_adjustment: boolean;
   type: TransactionType;
   description: string | null;
   created_at: string;
+  occurred_at: string;
 }
 
 export interface TransactionMonthSummaryRead {
@@ -118,16 +150,20 @@ export interface ActivityItem {
   kind: string;
   id: string;
   created_at: string;
+  occurred_at: string | null;
   account_id: string | null;
   source_account_id: string | null;
   destination_account_id: string | null;
   amount: string | null;
+  account_amount: string | null;
   currency: Currency | null;
+  account_currency: Currency | null;
   source_amount: string | null;
   source_currency: Currency | null;
   destination_amount: string | null;
   destination_currency: Currency | null;
   rate_used: string | null;
+  is_adjustment: boolean;
   transaction_type: TransactionType | null;
   category_id: string | null;
   category_name: string | null;
@@ -143,8 +179,46 @@ export interface TransactionCreate {
   account_id: string;
   category_id: string;
   amount: string;
+  currency: Currency;
   type: TransactionType;
   description: string | null;
+  occurred_at: string;
+}
+
+export interface TransactionUpdate {
+  account_id?: string;
+  category_id?: string;
+  amount?: string;
+  currency?: Currency;
+  description?: string | null;
+  occurred_at?: string;
+}
+
+export interface BudgetCreate {
+  category_id: string;
+  amount: string;
+  currency: Currency;
+}
+
+export interface BudgetUpdate {
+  amount?: string;
+  currency?: Currency;
+}
+
+export interface BudgetRead {
+  id: string;
+  category_id: string;
+  amount: string;
+  currency: Currency;
+  created_at: string;
+}
+
+export interface BudgetMonthSummary extends BudgetRead {
+  category_name: string;
+  spent: string;
+  remaining: string;
+  percentage: string;
+  status: 'on_track' | 'at_limit' | 'over_budget';
 }
 
 export interface TransferRead {

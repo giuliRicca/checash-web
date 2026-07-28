@@ -2,10 +2,11 @@
 
 import { useState } from 'react';
 
-import { formatMoneyInput, parseMoneyInput } from '@/lib/money/format';
-import { Button, Field, Panel, fieldControlClassName } from '~components/ui';
+import { parseMoneyInput } from '@/lib/money/format';
+import { useLiveMoneyInput } from '@/lib/money/use-live-money-input';
+import { Button, Field, MoneyInput, Panel, fieldControlClassName } from '~components/ui';
 import { getDraftValidationError } from '~features/chat/helpers/draft-validation';
-import type { AccountRead, CategoryRead, ChatDraft, TransactionType } from '~types/api';
+import type { AccountRead, CategoryRead, ChatDraft, Currency, TransactionType } from '~types/api';
 
 interface DraftCardProps {
   draft: ChatDraft;
@@ -23,21 +24,29 @@ function fallbackCategoryId(categories: CategoryRead[], transactionType: Transac
     ?? '';
 }
 
+function toLocalDateTimeInput(value: string | null): string {
+  const date = value === null ? new Date() : new Date(value);
+  const offset = date.getTimezoneOffset() * 60_000;
+  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+}
+
 export function DraftCard({ draft, accounts, categories, onConfirm, onCancel, isSubmitting }: DraftCardProps): JSX.Element {
-  const [amount, setAmount] = useState(draft.amount);
+  const { value: amount, onChange: handleAmountChange } = useLiveMoneyInput(draft.amount);
   const [transactionType, setTransactionType] = useState<ChatDraft['transaction_type']>(draft.transaction_type);
   const [accountId, setAccountId] = useState(draft.account_id ?? accounts[0]?.id ?? '');
+  const [currency, setCurrency] = useState<Currency>(draft.currency);
   const initialType = draft.transaction_type === 'transfer' ? 'expense' : draft.transaction_type;
   const initialCategory = categories.find((category) => category.id === draft.category_id);
   const [categoryId, setCategoryId] = useState(
     initialCategory?.type === initialType ? initialCategory.id : fallbackCategoryId(categories, initialType),
   );
   const [description, setDescription] = useState(draft.description ?? '');
+  const [occurredAt, setOccurredAt] = useState(() => toLocalDateTimeInput(draft.occurred_at));
   const [destinationAccountId, setDestinationAccountId] = useState(draft.exchange_details?.destination_account_id ?? accounts.find((account) => account.id !== draft.account_id)?.id ?? '');
-  const [rateOverride, setRateOverride] = useState(draft.exchange_details?.rate_override ?? '');
+  const { value: rateOverride, onChange: handleRateOverrideChange } = useLiveMoneyInput(draft.exchange_details?.rate_override ?? '');
   const visibleCategories = transactionType === 'transfer'
     ? []
-    : categories.filter((category) => category.type === transactionType);
+    : categories.filter((category) => category.type === transactionType && !category.slug.startsWith('balance-adjustment-'));
   const validationError = getDraftValidationError(
     amount,
     transactionType,
@@ -55,11 +64,13 @@ export function DraftCard({ draft, accounts, categories, onConfirm, onCancel, is
     return {
       ...draft,
       amount: parseMoneyInput(amount),
+      currency,
       account_id: accountId,
       category_id: isExchange ? draft.category_id : categoryId,
       category_name: isExchange ? draft.category_name : selectedCategory?.name ?? draft.category_name,
       transaction_type: transactionType,
       description: description.trim() === '' ? null : description.trim(),
+      occurred_at: new Date(occurredAt).toISOString(),
       is_exchange: isExchange,
       exchange_details: isExchange
         ? {
@@ -87,8 +98,15 @@ export function DraftCard({ draft, accounts, categories, onConfirm, onCancel, is
         <div className="mt-5 grid gap-3 sm:grid-cols-2">
         <Field>
           <Field.Label>Amount</Field.Label>
-          <input className={fieldControlClassName} inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} onBlur={() => setAmount((currentAmount) => formatMoneyInput(currentAmount))} />
+          <MoneyInput value={amount} onChange={handleAmountChange} />
         </Field>
+        {transactionType === 'transfer' ? null : <Field>
+          <Field.Label>Currency</Field.Label>
+          <select className={fieldControlClassName} value={currency} onChange={(event) => setCurrency(event.target.value as Currency)}>
+            <option value="ARS">ARS</option>
+            <option value="USD">USD</option>
+          </select>
+        </Field>}
         <Field>
           <Field.Label>Type</Field.Label>
           <select className={fieldControlClassName} value={transactionType} onChange={(event) => {
@@ -125,13 +143,17 @@ export function DraftCard({ draft, accounts, categories, onConfirm, onCancel, is
         {transactionType === 'transfer' ? (
           <Field>
             <Field.Label>Rate override</Field.Label>
-            <input className={fieldControlClassName} inputMode="decimal" value={rateOverride} onChange={(event) => setRateOverride(event.target.value)} onBlur={() => setRateOverride((currentRateOverride) => formatMoneyInput(currentRateOverride))} placeholder="Optional" />
+            <MoneyInput value={rateOverride} onChange={handleRateOverrideChange} placeholder="Optional" />
           </Field>
         ) : null}
         <Field className="sm:col-span-2">
           <Field.Label>Description</Field.Label>
           <textarea className={`${fieldControlClassName} min-h-20`} value={description} onChange={(event) => setDescription(event.target.value)} />
         </Field>
+        {transactionType === 'transfer' ? null : <Field>
+          <Field.Label>When</Field.Label>
+          <input className={fieldControlClassName} type="datetime-local" max={toLocalDateTimeInput(null)} value={occurredAt} onChange={(event) => setOccurredAt(event.target.value)} />
+        </Field>}
       </div>
 
         {validationError === null ? null : <p className="mt-4 text-sm text-danger" role="alert">{validationError}</p>}

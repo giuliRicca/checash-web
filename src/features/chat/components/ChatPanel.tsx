@@ -6,7 +6,9 @@ import { useState } from 'react';
 
 import { ApiError } from '@/lib/api/errors';
 import { Button, Panel, fieldControlClassName } from '~components/ui';
-import { accountsQueryKey, netWorthQueryKey } from '~features/accounts';
+import { accountsQueryKey, netWorthHistoryQueryKey, netWorthQueryKey } from '~features/accounts';
+import { activityQueryKey } from '~features/activity';
+import { budgetSummaryQueryKey } from '~features/budgets';
 import { chatApi } from '~features/chat/api/chat-api';
 import { DraftCard } from '~features/chat/components/DraftCard';
 import { monthSummaryQueryKey } from '~features/transactions';
@@ -38,7 +40,10 @@ export function ChatPanel({ accounts, categories }: ChatPanelProps): JSX.Element
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: accountsQueryKey }),
         queryClient.invalidateQueries({ queryKey: netWorthQueryKey }),
+        queryClient.invalidateQueries({ queryKey: netWorthHistoryQueryKey }),
         queryClient.invalidateQueries({ queryKey: monthSummaryQueryKey }),
+        queryClient.invalidateQueries({ queryKey: budgetSummaryQueryKey }),
+        queryClient.invalidateQueries({ queryKey: activityQueryKey }),
       ]);
     },
   });

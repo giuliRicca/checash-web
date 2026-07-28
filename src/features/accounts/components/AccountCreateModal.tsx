@@ -6,8 +6,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 
 import { ApiError } from '@/lib/api/errors';
-import { formatMoneyInput, parseMoneyInput } from '@/lib/money/format';
-import { Button, Field, fieldControlClassName } from '~components/ui';
+import { parseMoneyInput } from '@/lib/money/format';
+import { useLiveMoneyInput } from '@/lib/money/use-live-money-input';
+import { Button, Field, MoneyInput, fieldControlClassName } from '~components/ui';
 import { rateTypeOptions } from '~features/accounts/helpers/rate-types';
 import { useCreateAccountMutation } from '~features/accounts/hooks/use-accounts';
 import { useAuth } from '~features/auth';
@@ -28,7 +29,7 @@ export function AccountCreateModal({ onClose }: AccountCreateModalProps): JSX.El
   const createAccount = useCreateAccountMutation();
   const [name, setName] = useState('Cash');
   const [currency, setCurrency] = useState<Currency>('ARS');
-  const [openingBalance, setOpeningBalance] = useState('0.00');
+  const { value: openingBalance, onChange: handleOpeningBalanceChange } = useLiveMoneyInput('0');
   const [rateType, setRateType] = useState<RateType>('blue');
   const [hasSubmitted, setHasSubmitted] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -38,7 +39,7 @@ export function AccountCreateModal({ onClose }: AccountCreateModalProps): JSX.El
   const trimmedName = name.trim();
   const isOpeningBalanceValid = isValidOpeningBalance(openingBalance);
   const canSubmit = trimmedName.length > 0 && isOpeningBalanceValid && !createAccount.isPending && createdAccountId === null;
-  const isDirty = trimmedName !== 'Cash' || currency !== 'ARS' || openingBalance !== '0.00' || rateType !== 'blue' || error !== null || preferenceWarning !== null;
+  const isDirty = trimmedName !== 'Cash' || currency !== 'ARS' || openingBalance !== '0' || rateType !== 'blue' || error !== null || preferenceWarning !== null;
 
   const handleClose = useCallback((): void => {
     if (!createAccount.isPending) {
@@ -91,9 +92,12 @@ export function AccountCreateModal({ onClose }: AccountCreateModalProps): JSX.El
         await queryClient.invalidateQueries({ queryKey: ['auth', 'me'] });
       } catch {
         setPreferenceWarning('Account created. Set default account later in settings.');
+        return;
       }
     }
-  }, [canSubmit, createAccount, currency, openingBalance, queryClient, rateType, trimmedName, user?.default_account_id]);
+
+    onClose();
+  }, [canSubmit, createAccount, currency, onClose, openingBalance, queryClient, rateType, trimmedName, user?.default_account_id]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-background/80 p-0 backdrop-blur-sm sm:items-center sm:p-4" role="presentation" onMouseDown={isDirty ? undefined : handleClose}>
@@ -143,13 +147,10 @@ export function AccountCreateModal({ onClose }: AccountCreateModalProps): JSX.El
 
             <Field>
               <Field.Label>Opening balance</Field.Label>
-              <input
-                className={fieldControlClassName}
-                inputMode="decimal"
+              <MoneyInput
                 placeholder="0.00"
                 value={openingBalance}
-                onChange={(event) => setOpeningBalance(event.target.value)}
-                onBlur={() => setOpeningBalance((currentBalance) => formatMoneyInput(currentBalance))}
+                onChange={handleOpeningBalanceChange}
                 aria-invalid={hasSubmitted && !isOpeningBalanceValid}
                 aria-describedby={hasSubmitted && !isOpeningBalanceValid ? 'opening-balance-error' : undefined}
               />

@@ -1,17 +1,18 @@
 'use client';
 
 import { X } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import { ApiError } from '@/lib/api/errors';
-import { formatMoneyInput, isValidMoneyInput, parseMoneyInput } from '@/lib/money/format';
+import { isValidMoneyInput, parseMoneyInput } from '@/lib/money/format';
+import { useLiveMoneyInput } from '@/lib/money/use-live-money-input';
 import { cn } from '@/lib/ui/cn';
-import { Button, Field, fieldControlClassName } from '~components/ui';
+import { Button, Field, MoneyInput, fieldControlClassName } from '~components/ui';
 import { useAccountsQuery } from '~features/accounts';
 import { useAuth } from '~features/auth';
 import { useCategoriesQuery } from '~features/categories';
 import { useCreateTransactionMutation } from '~features/transactions/hooks/use-create-transaction';
-import type { CategoryRead, TransactionType } from '~types/api';
+import type { CategoryRead, Currency, TransactionType } from '~types/api';
 
 interface AddTransactionModalProps {
   onClose: () => void;
@@ -31,6 +32,23 @@ function fallbackCategoryId(categories: CategoryRead[], transactionType: Transac
     ?? '';
 }
 
+function defaultAccountId(accounts: Array<{ id: string }>, preferredAccountId: string | null): string {
+  return accounts.some((account) => account.id === preferredAccountId)
+    ? preferredAccountId ?? ''
+    : accounts[0]?.id ?? '';
+}
+
+function defaultCategoryId(categories: CategoryRead[], preferredCategoryId: string | null): string {
+  return categories.some((category) => category.id === preferredCategoryId && category.type === 'expense')
+    ? preferredCategoryId ?? ''
+    : fallbackCategoryId(categories, 'expense');
+}
+
+function toLocalDateTimeInput(date: Date): string {
+  const offset = date.getTimezoneOffset() * 60_000;
+  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+}
+
 export function AddTransactionModal({ onClose }: AddTransactionModalProps): JSX.Element {
   const { token, user } = useAuth();
   const authToken = requireToken(token);
@@ -39,23 +57,28 @@ export function AddTransactionModal({ onClose }: AddTransactionModalProps): JSX.
   const { data: accounts } = useAccountsQuery(authToken, user.id);
   const { data: categories } = useCategoriesQuery(authToken, user.id);
   const createTransactionMutation = useCreateTransactionMutation();
+  const initialAccountId = defaultAccountId(accounts, user.default_account_id);
+  const initialAccount = accounts.find((account) => account.id === initialAccountId);
+  const initialCategoryId = defaultCategoryId(categories, user.default_category_id);
   const [transactionType, setTransactionType] = useState<TransactionType>('expense');
-  const [amount, setAmount] = useState('');
-  const [accountId, setAccountId] = useState(accounts[0]?.id ?? '');
-  const [categoryId, setCategoryId] = useState(fallbackCategoryId(categories, 'expense'));
+  const { inputRef: amountInputRef, value: amount, onChange: handleAmountChange } = useLiveMoneyInput('');
+  const [accountId, setAccountId] = useState(initialAccountId);
+  const [currency, setCurrency] = useState<Currency>(initialAccount?.currency ?? 'ARS');
+  const [hasChosenCurrency, setHasChosenCurrency] = useState(false);
+  const [categoryId, setCategoryId] = useState(initialCategoryId);
   const [description, setDescription] = useState('');
+  const [occurredAt, setOccurredAt] = useState(() => toLocalDateTimeInput(new Date()));
   const [hasSubmitted, setHasSubmitted] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const amountInputRef = useRef<HTMLInputElement>(null);
   const trimmedAmount = amount.trim();
   const parsedAmount = parseMoneyInput(trimmedAmount);
-  const visibleCategories = categories.filter((category) => category.type === transactionType);
+  const visibleCategories = categories.filter((category) => category.type === transactionType && !category.slug.startsWith('balance-adjustment-'));
   const isAmountValid = isValidMoneyInput(trimmedAmount);
   const amountError = hasSubmitted && !isAmountValid ? 'Enter an amount greater than 0.' : null;
   const canSubmit = isAmountValid && accountId.length > 0 && categoryId.length > 0 && !createTransactionMutation.isPending;
   const amountPrefix = transactionType === 'expense' ? '-' : '+';
   const submitLabel = createTransactionMutation.isPending ? 'Saving...' : `Save ${transactionType}`;
-  const isDirty = trimmedAmount.length > 0 || description.trim().length > 0 || transactionType !== 'expense' || accountId !== (accounts[0]?.id ?? '') || categoryId !== fallbackCategoryId(categories, 'expense');
+  const isDirty = trimmedAmount.length > 0 || description.trim().length > 0 || transactionType !== 'expense' || accountId !== initialAccountId || categoryId !== initialCategoryId;
 
   const handleClose = useCallback((): void => {
     if (!createTransactionMutation.isPending) {
@@ -74,7 +97,7 @@ export function AddTransactionModal({ onClose }: AddTransactionModalProps): JSX.
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [handleClose]);
+  }, [amountInputRef, handleClose]);
 
   const handleSubmit = useCallback(async (event: React.FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault();
@@ -92,14 +115,16 @@ export function AddTransactionModal({ onClose }: AddTransactionModalProps): JSX.
         account_id: accountId,
         category_id: categoryId,
         amount: parseMoneyInput(amount),
+        currency,
         type: transactionType,
         description: description.trim() === '' ? null : description.trim(),
+        occurred_at: new Date(occurredAt).toISOString(),
       });
       onClose();
     } catch (caughtError) {
       setError(caughtError instanceof ApiError ? caughtError.detail : 'Could not save transaction');
     }
-  }, [accountId, amount, canSubmit, categoryId, createTransactionMutation, description, onClose, transactionType]);
+  }, [accountId, amount, canSubmit, categoryId, createTransactionMutation, currency, description, occurredAt, onClose, transactionType]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-background/80 p-0 backdrop-blur-sm sm:items-center sm:p-4" role="presentation" onMouseDown={isDirty ? undefined : handleClose}>
@@ -132,32 +157,59 @@ export function AddTransactionModal({ onClose }: AddTransactionModalProps): JSX.
 
           <Field>
             <Field.Label>Amount</Field.Label>
-            <div className="flex overflow-hidden rounded-xl border border-border-strong bg-background focus-within:border-primary">
-              <span className={cn(
+            <MoneyInput
+              leading={<span className={cn(
                 'flex min-w-12 items-center justify-center border-r border-border-strong text-lg font-bold',
                 transactionType === 'expense' ? 'bg-danger-muted text-danger' : 'bg-success-muted text-success',
-              )}>{amountPrefix}</span>
-              <input
+              )}>{amountPrefix}</span>}
                 ref={amountInputRef}
-                className="min-h-12 min-w-0 flex-1 bg-transparent px-4 py-3 text-lg font-semibold text-foreground outline-none placeholder:text-muted-foreground"
-                inputMode="decimal"
+                className="min-h-12 text-lg font-semibold"
                 min="0"
                 placeholder="0.00"
                 value={amount}
-                onChange={(event) => setAmount(event.target.value)}
-                onBlur={() => setAmount((currentAmount) => formatMoneyInput(currentAmount))}
+                onChange={handleAmountChange}
                 aria-invalid={amountError !== null}
                 aria-describedby={amountError !== null ? 'transaction-amount-error' : undefined}
-              />
-            </div>
+            />
             {amountError !== null ? <Field.Error className="mt-1" id="transaction-amount-error">{amountError}</Field.Error> : null}
+          </Field>
+
+          <Field>
+            <Field.Label>Transaction currency</Field.Label>
+            <div className="grid grid-cols-2 rounded-xl border border-border-strong bg-background p-1" role="group" aria-label="Transaction currency">
+              {(['ARS', 'USD'] as const).map((value) => (
+                <button
+                  className={cn('min-h-10 rounded-lg px-3 text-sm font-bold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60', value === currency ? 'bg-primary text-primary-foreground' : 'text-muted hover:bg-surface-muted hover:text-foreground')}
+                  key={value}
+                  type="button"
+                  aria-pressed={value === currency}
+                  onClick={() => {
+                    setCurrency(value);
+                    setHasChosenCurrency(true);
+                  }}
+                >
+                  {value}
+                </button>
+              ))}
+            </div>
+          </Field>
+
+          <Field>
+            <Field.Label>When</Field.Label>
+            <input className={fieldControlClassName} type="datetime-local" max={toLocalDateTimeInput(new Date())} value={occurredAt} onChange={(event) => setOccurredAt(event.target.value)} />
           </Field>
 
           <div className="grid gap-4 sm:grid-cols-2">
 
             <Field>
               <Field.Label>Account</Field.Label>
-              <select className={fieldControlClassName} value={accountId} onChange={(event) => setAccountId(event.target.value)}>
+              <select className={fieldControlClassName} value={accountId} onChange={(event) => {
+                const nextAccountId = event.target.value;
+                setAccountId(nextAccountId);
+                if (!hasChosenCurrency) {
+                  setCurrency(accounts.find((account) => account.id === nextAccountId)?.currency ?? 'ARS');
+                }
+              }}>
                 {accounts.map((account) => <option key={account.id} value={account.id}>{account.name} ({account.currency})</option>)}
               </select>
             </Field>

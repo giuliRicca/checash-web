@@ -14,7 +14,7 @@ test('passes dynamic route account ID to account APIs', async ({ page }) => {
   await page.addInitScript(() => {
     window.localStorage.setItem('checash.access_token', 'test-token');
   });
-  await page.route('http://localhost:8000/api/**', async (route) => {
+  await page.route('**/api/**', async (route) => {
     const path = new URL(route.request().url()).pathname;
     requestedPaths.push(path);
 
@@ -40,4 +40,54 @@ test('passes dynamic route account ID to account APIs', async ({ page }) => {
   expect(requestedPaths).toContain(`/api/accounts/${accountId}`);
   expect(requestedPaths).toContain(`/api/accounts/${accountId}/activity`);
   expect(requestedPaths).not.toContain('/api/accounts/undefined');
+});
+
+test('shows current-month net worth growth on dashboard', async ({ page }) => {
+  await page.addInitScript(() => {
+    window.localStorage.setItem('checash.access_token', 'test-token');
+  });
+  await page.route('**/api/**', async (route) => {
+    const path = new URL(route.request().url()).pathname;
+
+    if (path === '/api/auth/me') {
+      await route.fulfill({ json: { id: 'user-1', email: 'test@example.com', default_account_id: null, default_category_id: null } });
+      return;
+    }
+    if (path === '/api/accounts') {
+      await route.fulfill({ json: [{ id: 'account-1', name: 'Cash', currency: 'ARS', opening_balance: '0.00', balance: '1500.00', rate_type: 'blue', archived_at: null }] });
+      return;
+    }
+    if (path === '/api/accounts/net-worth') {
+      await route.fulfill({ json: { total_ars: '1500.00', total_usd: '1.50' } });
+      return;
+    }
+    if (path === '/api/accounts/net-worth/history') {
+      await route.fulfill({
+        json: {
+          month_start: '2026-07-01',
+          points: [
+            { date: '2026-07-20', total_ars: '1000.00', total_usd: '1.00' },
+            { date: '2026-07-21', total_ars: '1500.00', total_usd: '1.50' },
+          ],
+        },
+      });
+      return;
+    }
+    if (path === '/api/transactions/month-summary') {
+      await route.fulfill({ json: { month_start: '2026-07-01T00:00:00Z', month_end: '2026-08-01T00:00:00Z', income_ars: '500.00', income_usd: '0.50', expense_ars: '0.00', expense_usd: '0.00' } });
+      return;
+    }
+    if (path === '/api/activity') {
+      await route.fulfill({ json: { items: [], next_cursor: null } });
+      return;
+    }
+
+    await route.fulfill({ status: 404, json: { detail: 'Not found' } });
+  });
+
+  await page.goto('/');
+
+  await expect(page.getByText('Net worth growth')).toBeVisible();
+  await expect(page.getByText('+ARS 500,00')).toBeVisible();
+  await expect(page.getByRole('img', { name: /Net worth trend from ARS 1.000,00 to ARS 1.500,00/ })).toBeVisible();
 });

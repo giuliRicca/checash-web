@@ -1,17 +1,19 @@
 'use client';
 
-import { ArrowDownLeft, ArrowLeft, ArrowRightLeft, ArrowUpRight, Landmark, Pencil, Save, X } from 'lucide-react';
+import { ArrowLeft, Landmark, Pencil, Save, Trash2, X } from 'lucide-react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { Suspense, useCallback, useEffect, useState } from 'react';
 
 import { ApiError } from '@/lib/api/errors';
-import { formatMoneyWithCurrency } from '@/lib/money/format';
-import { cn } from '@/lib/ui/cn';
+import { formatMoneyInput, formatMoneyWithCurrency, parseMoneyInput } from '@/lib/money/format';
+import { useLiveMoneyInput } from '@/lib/money/use-live-money-input';
 import { SuspenseLoader } from '~components/SuspenseLoader';
-import { Button, Field, IconBadge, Panel, fieldControlClassName } from '~components/ui';
+import { Button, Field, IconBadge, MoneyInput, fieldControlClassName } from '~components/ui';
+import { ActivityList } from '~features/activity';
 import { AuthenticatedApp, useAuth } from '~features/auth';
-import { rateTypeOptions, useAccountDetailQueries, useUpdateAccountMutation } from '~features/accounts';
-import type { AccountRead, ActivityFeed, ActivityItem, Currency, RateType } from '~types/api';
+import { rateTypeOptions, useAccountDetailQueries, useCreateAccountAdjustmentMutation, useDeleteAccountMutation, useUpdateAccountMutation } from '~features/accounts';
+import type { AccountRead, Currency, RateType } from '~types/api';
 
 interface AccountDetailPageProps {
   accountId: string;
@@ -24,6 +26,8 @@ interface AccountDetailContentProps {
 interface AccountSummaryProps {
   account: AccountRead;
   onEdit: () => void;
+  onAdjustBalance: () => void;
+  onDelete: () => void;
 }
 
 interface AccountEditModalProps {
@@ -31,15 +35,14 @@ interface AccountEditModalProps {
   onClose: () => void;
 }
 
-interface AccountActivityListProps {
-  activity: ActivityFeed;
-  onLoadMore: () => void;
-  hasMore: boolean;
-  isLoadingMore: boolean;
+interface AccountAdjustmentModalProps {
+  account: AccountRead;
+  onClose: () => void;
 }
 
-interface ActivityRowProps {
-  item: ActivityItem;
+interface AccountDeleteModalProps {
+  account: AccountRead;
+  onClose: () => void;
 }
 
 function requireToken(token: string | null): string {
@@ -49,16 +52,14 @@ function requireToken(token: string | null): string {
   return token;
 }
 
-function formatDate(value: string): string {
-  return new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
-}
-
 function AccountDetailContent({ accountId }: AccountDetailContentProps): JSX.Element {
   const { token, user } = useAuth();
   const authToken = requireToken(token);
   if (user === null) throw new Error('Account details require current user');
-  const { account, activity, loadMore, hasMore, isLoadingMore } = useAccountDetailQueries(authToken, user.id, accountId);
+  const { account, activity, loadMore, hasMore, isLoadingMore, loadMoreError } = useAccountDetailQueries(authToken, user.id, accountId);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [isAdjustmentModalOpen, setIsAdjustmentModalOpen] = useState(false);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
 
   const handleOpenEditModal = useCallback((): void => {
     setIsEditModalOpen(true);
@@ -77,15 +78,17 @@ function AccountDetailContent({ accountId }: AccountDetailContentProps): JSX.Ele
         </Link>
       </div>
 
-      <AccountSummary account={account} onEdit={handleOpenEditModal} />
+      <AccountSummary account={account} onEdit={handleOpenEditModal} onAdjustBalance={() => setIsAdjustmentModalOpen(true)} onDelete={() => setIsDeleteModalOpen(true)} />
 
-      <AccountActivityList activity={activity} onLoadMore={loadMore} hasMore={hasMore} isLoadingMore={isLoadingMore} />
+      <ActivityList activity={activity} emptyMessage="No transactions or transfers for this account yet." hasMore={hasMore} isLoadingMore={isLoadingMore} loadMoreError={loadMoreError} onLoadMore={loadMore} title="Activity" />
       {isEditModalOpen ? <AccountEditModal account={account} onClose={handleCloseEditModal} /> : null}
+      {isAdjustmentModalOpen ? <AccountAdjustmentModal account={account} onClose={() => setIsAdjustmentModalOpen(false)} /> : null}
+      {isDeleteModalOpen ? <AccountDeleteModal account={account} onClose={() => setIsDeleteModalOpen(false)} /> : null}
     </div>
   );
 }
 
-function AccountSummary({ account, onEdit }: AccountSummaryProps): JSX.Element {
+function AccountSummary({ account, onEdit, onAdjustBalance, onDelete }: AccountSummaryProps): JSX.Element {
   return (
     <section className="overflow-hidden rounded-3xl border border-primary/30 bg-primary text-primary-foreground shadow-xl shadow-primary/10">
       <div className="relative p-5 sm:p-7">
@@ -107,10 +110,17 @@ function AccountSummary({ account, onEdit }: AccountSummaryProps): JSX.Element {
             <SummaryStat label="Rate type" value={account.rate_type.toUpperCase()} />
           </dl>
         </div>
-        <div className="relative mt-6 flex justify-end">
+        <div className="relative mt-6 flex flex-wrap justify-end gap-3">
+          <Button className="border-primary-foreground/20 bg-primary-foreground/10 !text-primary-foreground hover:bg-primary-foreground/20" variant="secondary" type="button" onClick={onAdjustBalance}>
+            Adjust balance
+          </Button>
           <Button className="border-primary-foreground/20 bg-primary-foreground !text-primary hover:bg-primary-foreground/90" variant="secondary" type="button" onClick={onEdit}>
             <Pencil size={17} />
             Edit account
+          </Button>
+          <Button className="border-primary-foreground/20 bg-danger/90 !text-primary-foreground hover:bg-danger" variant="secondary" type="button" onClick={onDelete}>
+            <Trash2 size={17} />
+            Delete
           </Button>
         </div>
       </div>
@@ -223,62 +233,92 @@ function AccountEditModal({ account, onClose }: AccountEditModalProps): JSX.Elem
   );
 }
 
-function AccountActivityList({ activity, onLoadMore, hasMore, isLoadingMore }: AccountActivityListProps): JSX.Element {
+function AccountAdjustmentModal({ account, onClose }: AccountAdjustmentModalProps): JSX.Element {
+  const createAdjustment = useCreateAccountAdjustmentMutation(account.id);
+  const { value: targetBalance, onChange: handleTargetBalanceChange } = useLiveMoneyInput(formatMoneyInput(account.balance));
+  const [description, setDescription] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const parsedTargetBalance = parseMoneyInput(targetBalance);
+  const parsedCurrentBalance = parseMoneyInput(account.balance);
+  const hasTargetBalance = parsedTargetBalance !== '';
+  const hasChanges = hasTargetBalance && parsedTargetBalance !== parsedCurrentBalance;
+  const canSubmit = hasChanges && !createAdjustment.isPending;
+  const isDirty = targetBalance !== formatMoneyInput(account.balance) || description.trim() !== '' || error !== null;
+  const difference = hasTargetBalance ? Number(parsedTargetBalance) - Number(parsedCurrentBalance) : null;
+
+  const handleClose = useCallback((): void => {
+    if (!createAdjustment.isPending) {
+      onClose();
+    }
+  }, [createAdjustment.isPending, onClose]);
+
+  const handleSubmit = useCallback(async (event: React.FormEvent<HTMLFormElement>): Promise<void> => {
+    event.preventDefault();
+    if (!canSubmit || parsedTargetBalance === '') return;
+
+    setError(null);
+    try {
+      await createAdjustment.mutateAsync({
+        target_balance: parsedTargetBalance,
+        description: description.trim() === '' ? null : description.trim(),
+      });
+      onClose();
+    } catch (caughtError) {
+      setError(caughtError instanceof ApiError ? caughtError.detail : 'Could not adjust balance');
+    }
+  }, [canSubmit, createAdjustment, description, onClose, parsedTargetBalance]);
+
   return (
-    <Panel>
-      <Panel.Header className="flex items-center justify-between gap-4">
-        <Panel.Title>Activity</Panel.Title>
-        <span className="rounded-full bg-background px-3 py-1 text-xs font-bold text-muted">{activity.items.length} items</span>
-      </Panel.Header>
-      <Panel.Body className="p-0">
-        {activity.items.length === 0 ? (
-          <div className="p-6 text-sm text-muted">No transactions or transfers for this account yet.</div>
-        ) : (
-          <div className="divide-y divide-border">
-            {activity.items.map((item) => <ActivityRow key={`${item.kind}-${item.id}`} item={item} />)}
-          </div>
-        )}
-        {hasMore ? (
-          <div className="border-t border-border p-4">
-            <Button className="w-full" variant="secondary" type="button" onClick={onLoadMore} disabled={isLoadingMore}>
-              {isLoadingMore ? 'Loading...' : 'Load more'}
-            </Button>
-          </div>
-        ) : null}
-      </Panel.Body>
-    </Panel>
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-background/80 p-0 backdrop-blur-sm sm:items-center sm:p-4" role="presentation" onMouseDown={isDirty ? undefined : handleClose}>
+      <section aria-labelledby="adjust-balance-title" aria-modal="true" className="w-full max-w-lg rounded-t-3xl border border-border bg-surface p-4 shadow-2xl sm:rounded-2xl sm:p-6" role="dialog" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="mb-5 flex items-start justify-between gap-4">
+          <div><h2 className="text-2xl font-semibold text-foreground" id="adjust-balance-title">Adjust balance</h2><p className="mt-2 text-sm text-muted">Records difference as an adjustment. It will not affect income, expenses, or budgets.</p></div>
+          <Button size="icon" variant="ghost" type="button" aria-label="Close adjust balance dialog" onClick={handleClose} disabled={createAdjustment.isPending}><X size={18} /></Button>
+        </div>
+        <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
+          <Field><Field.Label>Current balance</Field.Label><p className={`${fieldControlClassName} flex items-center bg-surface-muted text-muted`}>{formatMoneyWithCurrency(account.balance, account.currency)}</p></Field>
+          <Field><Field.Label>Target balance</Field.Label><MoneyInput autoFocus value={targetBalance} onChange={handleTargetBalanceChange} aria-invalid={!hasTargetBalance} /></Field>
+          {difference === null || difference === 0 ? null : <p className="text-sm text-muted">Creates {difference > 0 ? 'an increase' : 'a decrease'} of {formatMoneyWithCurrency(String(Math.abs(difference)), account.currency)}.</p>}
+          <Field><Field.Label>Note</Field.Label><textarea className={`${fieldControlClassName} min-h-20`} maxLength={500} placeholder="Optional" value={description} onChange={(event) => setDescription(event.target.value)} /></Field>
+          {error === null ? null : <p className="rounded-xl border border-danger/40 bg-danger-muted px-4 py-3 text-sm text-danger" role="alert">{error}</p>}
+          <div className="flex flex-col-reverse gap-3 pt-2 sm:flex-row sm:justify-end"><Button variant="secondary" type="button" onClick={handleClose} disabled={createAdjustment.isPending}>Cancel</Button><Button type="submit" disabled={!canSubmit}>{createAdjustment.isPending ? 'Adjusting...' : 'Record adjustment'}</Button></div>
+        </form>
+      </section>
+    </div>
   );
 }
 
-function ActivityRow({ item }: ActivityRowProps): JSX.Element {
-  const isTransfer = item.kind === 'transfer';
-  const isIncome = item.transaction_type === 'income';
-  const amountLabel = isTransfer
-    ? `${formatMoneyWithCurrency(item.source_amount, item.source_currency)} -> ${formatMoneyWithCurrency(item.destination_amount, item.destination_currency)}`
-    : formatMoneyWithCurrency(item.amount, item.currency);
-  const title = isTransfer ? 'Transfer' : isIncome ? 'Income' : 'Expense';
-  const description = item.description ?? item.category_name ?? 'No description';
-  const toneClassName = isTransfer
-    ? 'bg-primary-muted text-primary'
-    : isIncome
-      ? 'bg-success-muted text-success'
-      : 'bg-danger-muted text-danger';
+function AccountDeleteModal({ account, onClose }: AccountDeleteModalProps): JSX.Element {
+  const router = useRouter();
+  const deleteAccount = useDeleteAccountMutation(account.id);
+  const [confirmation, setConfirmation] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const canDelete = confirmation === account.name && !deleteAccount.isPending;
+
+  const handleDelete = useCallback(async (event: React.FormEvent<HTMLFormElement>): Promise<void> => {
+    event.preventDefault();
+    if (!canDelete) return;
+
+    setError(null);
+    try {
+      await deleteAccount.mutateAsync();
+      router.replace('/accounts');
+    } catch (caughtError) {
+      setError(caughtError instanceof ApiError ? caughtError.detail : 'Could not delete account');
+    }
+  }, [canDelete, deleteAccount, router]);
 
   return (
-    <article className="grid gap-3 p-4 sm:grid-cols-[auto_1fr_auto] sm:items-center sm:p-5">
-      <div className={cn('flex size-11 items-center justify-center rounded-2xl', toneClassName)}>
-        {isTransfer ? <ArrowRightLeft size={18} /> : isIncome ? <ArrowDownLeft size={18} /> : <ArrowUpRight size={18} />}
-      </div>
-      <div className="min-w-0">
-        <div className="flex flex-wrap items-center gap-2">
-          <h3 className="font-semibold text-foreground">{title}</h3>
-          {item.category_name === null || isTransfer ? null : <span className="rounded-full bg-background px-2.5 py-1 text-xs font-semibold text-muted">{item.category_name}</span>}
-        </div>
-        <p className="mt-1 truncate text-sm text-muted">{description}</p>
-        <p className="mt-1 text-xs font-medium text-muted-foreground">{formatDate(item.created_at)}</p>
-      </div>
-      <p className="break-words text-left text-base font-bold text-foreground sm:text-right">{amountLabel}</p>
-    </article>
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-background/80 p-0 backdrop-blur-sm sm:items-center sm:p-4" role="presentation">
+      <section aria-labelledby="delete-account-title" aria-modal="true" className="w-full max-w-lg rounded-t-3xl border border-danger/40 bg-surface p-4 shadow-2xl sm:rounded-2xl sm:p-6" role="dialog">
+        <div className="mb-5 flex items-start justify-between gap-4"><div><h2 className="text-2xl font-semibold text-danger" id="delete-account-title">Delete account permanently</h2><p className="mt-2 text-sm text-muted">Deletes this account, every transaction and balance adjustment, and linked transfers. Surviving account balances will be corrected.</p></div><Button size="icon" variant="ghost" type="button" aria-label="Close delete account dialog" onClick={onClose} disabled={deleteAccount.isPending}><X size={18} /></Button></div>
+        <form className="flex flex-col gap-4" onSubmit={handleDelete}>
+          <Field><Field.Label>Type <strong>{account.name}</strong> to confirm</Field.Label><input autoFocus className={fieldControlClassName} value={confirmation} onChange={(event) => setConfirmation(event.target.value)} /></Field>
+          {error === null ? null : <p className="rounded-xl border border-danger/40 bg-danger-muted px-4 py-3 text-sm text-danger" role="alert">{error}</p>}
+          <div className="flex flex-col-reverse gap-3 pt-2 sm:flex-row sm:justify-end"><Button variant="secondary" type="button" onClick={onClose} disabled={deleteAccount.isPending}>Cancel</Button><Button className="bg-danger hover:bg-danger/90" type="submit" disabled={!canDelete}>{deleteAccount.isPending ? 'Deleting...' : 'Delete permanently'}</Button></div>
+        </form>
+      </section>
+    </div>
   );
 }
 

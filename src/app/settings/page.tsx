@@ -1,181 +1,121 @@
 'use client';
 
-import { Pencil, Plus, Trash2, X } from 'lucide-react';
-import { Suspense, useCallback, useState } from 'react';
+import { Check, ChevronRight, KeyRound, Pencil, Settings2, Tags, UserRound } from 'lucide-react';
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
+import { Suspense, useCallback, useRef, useState } from 'react';
 
 import { ApiError } from '@/lib/api/errors';
 import { SuspenseLoader } from '~components/SuspenseLoader';
 import { Button, Field, Panel, fieldControlClassName } from '~components/ui';
+import { useAccountsQuery } from '~features/accounts';
 import { AuthenticatedApp, useAuth } from '~features/auth';
-import {
-  useCategoriesQuery,
-  useCreateCategoryMutation,
-  useDeleteCategoryMutation,
-  useUpdateCategoryMutation,
-} from '~features/categories';
-import type { CategoryRead, TransactionType } from '~types/api';
+import { useCategoriesQuery } from '~features/categories';
+import { useChangePasswordMutation, useUpdatePreferencesMutation, useUpdateProfileMutation } from '~features/users';
+import type { AccountRead, CategoryRead } from '~types/api';
 
 function requireToken(token: string | null): string {
-  if (token === null) {
-    throw new Error('Settings require an authenticated session');
-  }
+  if (token === null) throw new Error('Settings require an authenticated session');
   return token;
 }
 
-function CategorySettings(): JSX.Element {
-  const { token, user } = useAuth();
-  const authToken = requireToken(token);
-  if (user === null) throw new Error('Settings require current user');
-  const { data: categories } = useCategoriesQuery(authToken, user.id);
-  const [isCreateOpen, setIsCreateOpen] = useState(false);
-  const [editingCategory, setEditingCategory] = useState<CategoryRead | null>(null);
-
-  return (
-    <div className="flex w-full flex-col gap-8 pb-20 lg:pb-0">
-      <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight text-foreground sm:text-4xl">Categories</h1>
-          <p className="mt-2 text-base text-muted">Keep income and expense categories separate.</p>
-        </div>
-        <Button type="button" onClick={() => setIsCreateOpen(true)}>
-          <Plus size={17} />
-          Add category
-        </Button>
-      </header>
-
-      {(['expense', 'income'] as const).map((type) => (
-        <CategoryGroup
-          key={type}
-          categories={categories.filter((category) => category.type === type)}
-          type={type}
-          onEdit={setEditingCategory}
-        />
-      ))}
-
-      {isCreateOpen ? <CategoryCreateModal onClose={() => setIsCreateOpen(false)} /> : null}
-      {editingCategory === null ? null : <CategoryEditModal category={editingCategory} onClose={() => setEditingCategory(null)} />}
-    </div>
-  );
+interface SettingsCardProps {
+  title: string;
+  description: string;
+  icon: JSX.Element;
+  isEditing: boolean;
+  isPending: boolean;
+  successMessage: string | null;
+  error: string | null;
+  onEdit: () => void;
+  onCancel: () => void;
+  children: React.ReactNode;
 }
 
-function CategoryGroup({ categories, type, onEdit }: { categories: CategoryRead[]; type: TransactionType; onEdit: (category: CategoryRead) => void }): JSX.Element {
-  const deleteCategory = useDeleteCategoryMutation();
-  const [error, setError] = useState<string | null>(null);
-  const label = type === 'expense' ? 'Expenses' : 'Income';
+function SettingsCard({ title, description, icon, isEditing, isPending, successMessage, error, onEdit, onCancel, children }: SettingsCardProps): JSX.Element {
+  const editButtonRef = useRef<HTMLButtonElement>(null);
 
-  const handleDelete = useCallback(async (category: CategoryRead): Promise<void> => {
-    if (!window.confirm(`Delete ${category.name}? This cannot be undone.`)) {
-      return;
-    }
-    setError(null);
-    try {
-      await deleteCategory.mutateAsync(category.id);
-    } catch (caughtError) {
-      setError(caughtError instanceof ApiError ? caughtError.detail : 'Could not delete category');
-    }
-  }, [deleteCategory]);
+  const handleCancel = useCallback((): void => {
+    onCancel();
+    requestAnimationFrame(() => editButtonRef.current?.focus());
+  }, [onCancel]);
 
   return (
     <Panel>
-      <Panel.Header className="flex items-center justify-between gap-4">
-        <div>
-          <Panel.Title>{label}</Panel.Title>
-          <p className="mt-1 text-sm text-muted">{type === 'expense' ? 'Money leaving your accounts.' : 'Money entering your accounts.'}</p>
+      <Panel.Header className="flex items-start justify-between gap-4">
+        <div className="flex min-w-0 items-start gap-3">
+          <div className="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary-muted text-primary">{icon}</div>
+          <div><Panel.Title>{title}</Panel.Title><p className="mt-1 text-sm text-muted">{description}</p></div>
         </div>
-        <span className="rounded-full bg-background px-3 py-1 text-xs font-bold text-muted">{categories.length}</span>
+        {isEditing ? <Button size="sm" type="button" variant="secondary" disabled={isPending} onClick={handleCancel}>Cancel</Button> : <button ref={editButtonRef} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-border-strong bg-surface-elevated px-3 text-sm font-semibold text-foreground transition hover:border-primary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background" type="button" aria-label={`Edit ${title.toLowerCase()}`} onClick={onEdit}><Pencil size={15} />Edit</button>}
       </Panel.Header>
-      <Panel.Body className="p-0">
-        <div className="divide-y divide-border">
-          {categories.map((category) => (
-            <div className="flex min-h-16 items-center justify-between gap-4 px-5 py-3" key={category.id}>
-              <div className="min-w-0">
-                <p className="break-words font-semibold text-foreground">{category.name}</p>
-                <p className="mt-0.5 text-xs text-muted">{category.is_system ? 'Built-in category' : 'Custom category'}</p>
-              </div>
-              {category.is_system ? <span className="text-xs font-semibold text-muted">Immutable</span> : (
-                <div className="flex gap-2">
-                  <Button size="icon" variant="ghost" type="button" aria-label={`Rename ${category.name}`} onClick={() => onEdit(category)} disabled={deleteCategory.isPending}><Pencil size={16} /></Button>
-                  <Button size="icon" variant="ghost" type="button" aria-label={`Delete ${category.name}`} onClick={() => void handleDelete(category)} disabled={deleteCategory.isPending}><Trash2 size={16} /></Button>
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-        {error === null ? null : <p className="m-4 rounded-xl border border-danger/40 bg-danger-muted px-4 py-3 text-sm text-danger" role="alert">{error}</p>}
+      <Panel.Body className="flex flex-col gap-5">
+        {successMessage === null ? null : <p className="flex items-center gap-2 rounded-xl border border-success/30 bg-success-muted px-3 py-2 text-sm font-medium text-success" role="status"><Check size={16} />{successMessage}</p>}
+        {children}
+        {error === null ? null : <p className="rounded-xl border border-danger/40 bg-danger-muted px-4 py-3 text-sm text-danger" role="alert">{error}</p>}
       </Panel.Body>
     </Panel>
   );
 }
 
-function CategoryCreateModal({ onClose }: { onClose: () => void }): JSX.Element {
-  const createCategory = useCreateCategoryMutation();
-  const [name, setName] = useState('');
-  const [type, setType] = useState<TransactionType>('expense');
+function SettingsNav(): JSX.Element {
+  const pathname = usePathname();
+  const items = [
+    { href: '/settings', label: 'My profile', icon: <UserRound size={16} /> },
+    { href: '/settings#security', label: 'Security', icon: <KeyRound size={16} /> },
+    { href: '/settings#defaults', label: 'Transaction defaults', icon: <Settings2 size={16} /> },
+    { href: '/settings/categories', label: 'Categories', icon: <Tags size={16} /> },
+  ];
+
+  return <nav aria-label="Settings sections" className="flex gap-2 overflow-x-auto pb-1 lg:sticky lg:top-24 lg:flex-col lg:overflow-visible">{items.map((item) => {
+    const isActive = item.href === '/settings' ? pathname === '/settings' : pathname === item.href;
+    return <Link aria-current={isActive ? 'page' : undefined} className={`inline-flex min-h-11 shrink-0 items-center gap-2 rounded-xl px-3 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background ${isActive ? 'bg-primary-muted text-primary' : 'text-muted hover:bg-surface-muted hover:text-foreground'}`} href={item.href} key={item.href}>{item.icon}{item.label}</Link>;
+  })}</nav>;
+}
+
+function ProfileSettings({ email, displayName }: { email: string; displayName: string | null }): JSX.Element {
+  const updateProfile = useUpdateProfileMutation();
+  const [isEditing, setIsEditing] = useState(false);
+  const [nextEmail, setNextEmail] = useState(email);
+  const [nextDisplayName, setNextDisplayName] = useState(displayName ?? '');
   const [error, setError] = useState<string | null>(null);
-  const trimmedName = name.trim();
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
+  const startEditing = useCallback((): void => { setNextEmail(email); setNextDisplayName(displayName ?? ''); setError(null); setSuccessMessage(null); setIsEditing(true); }, [displayName, email]);
+  const cancelEditing = useCallback((): void => { setError(null); setIsEditing(false); }, []);
   const handleSubmit = useCallback(async (event: React.FormEvent<HTMLFormElement>): Promise<void> => {
-    event.preventDefault();
-    if (trimmedName.length === 0 || createCategory.isPending) return;
-    setError(null);
-    try {
-      await createCategory.mutateAsync({ name: trimmedName, type });
-      onClose();
-    } catch (caughtError) {
-      setError(caughtError instanceof ApiError ? caughtError.detail : 'Could not create category');
-    }
-  }, [createCategory, onClose, trimmedName, type]);
+    event.preventDefault(); if (updateProfile.isPending) return; setError(null);
+    try { await updateProfile.mutateAsync({ email: nextEmail.trim(), display_name: nextDisplayName.trim() || null }); setSuccessMessage('Profile saved'); setIsEditing(false); }
+    catch (caughtError) { setError(caughtError instanceof ApiError ? caughtError.detail : 'Could not update profile'); }
+  }, [nextDisplayName, nextEmail, updateProfile]);
 
-  return <CategoryModal title="Add category" onClose={onClose} isPending={createCategory.isPending}>
-    <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
-      <Field><Field.Label>Name</Field.Label><input autoFocus className={fieldControlClassName} maxLength={120} required value={name} onChange={(event) => setName(event.target.value)} /></Field>
-      <Field><Field.Label>Transaction type</Field.Label><select className={fieldControlClassName} value={type} onChange={(event) => setType(event.target.value as TransactionType)}><option value="expense">Expense</option><option value="income">Income</option></select></Field>
-      <p className="text-sm text-muted">This type cannot be changed after the category is created.</p>
-      {error === null ? null : <p className="rounded-xl border border-danger/40 bg-danger-muted px-4 py-3 text-sm text-danger" role="alert">{error}</p>}
-      <div className="flex flex-col-reverse gap-3 pt-2 sm:flex-row sm:justify-end"><Button variant="secondary" type="button" onClick={onClose} disabled={createCategory.isPending}>Cancel</Button><Button type="submit" disabled={trimmedName.length === 0 || createCategory.isPending}>{createCategory.isPending ? 'Creating...' : 'Create category'}</Button></div>
-    </form>
-  </CategoryModal>;
+  return <SettingsCard description="Your CheCash identity and sign-in email." error={error} icon={<UserRound size={20} />} isEditing={isEditing} isPending={updateProfile.isPending} onCancel={cancelEditing} onEdit={startEditing} successMessage={successMessage} title="My profile">{isEditing ? <form className="flex flex-col gap-4" onSubmit={handleSubmit}><Field><Field.Label>Display name</Field.Label><input autoFocus className={fieldControlClassName} maxLength={120} value={nextDisplayName} onChange={(event) => setNextDisplayName(event.target.value)} /></Field><Field><Field.Label>Email</Field.Label><input autoComplete="email" className={fieldControlClassName} required type="email" value={nextEmail} onChange={(event) => setNextEmail(event.target.value)} /></Field><Button className="self-start" type="submit" disabled={updateProfile.isPending}>{updateProfile.isPending ? 'Saving...' : 'Save changes'}</Button></form> : <dl className="grid gap-4 sm:grid-cols-2"><div><dt className="text-xs font-semibold uppercase tracking-wide text-muted">Display name</dt><dd className="mt-1 break-words font-medium text-foreground">{displayName ?? 'Not set'}</dd></div><div><dt className="text-xs font-semibold uppercase tracking-wide text-muted">Email</dt><dd className="mt-1 break-words font-medium text-foreground">{email}</dd></div></dl>}</SettingsCard>;
 }
 
-function CategoryEditModal({ category, onClose }: { category: CategoryRead; onClose: () => void }): JSX.Element {
-  const updateCategory = useUpdateCategoryMutation(category.id);
-  const [name, setName] = useState(category.name);
-  const [error, setError] = useState<string | null>(null);
-  const trimmedName = name.trim();
-
-  const handleSubmit = useCallback(async (event: React.FormEvent<HTMLFormElement>): Promise<void> => {
-    event.preventDefault();
-    if (trimmedName.length === 0 || trimmedName === category.name || updateCategory.isPending) return;
-    setError(null);
-    try {
-      await updateCategory.mutateAsync({ name: trimmedName });
-      onClose();
-    } catch (caughtError) {
-      setError(caughtError instanceof ApiError ? caughtError.detail : 'Could not rename category');
-    }
-  }, [category.name, onClose, trimmedName, updateCategory]);
-
-  return <CategoryModal title="Rename category" onClose={onClose} isPending={updateCategory.isPending}>
-    <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
-      <Field><Field.Label>Name</Field.Label><input autoFocus className={fieldControlClassName} maxLength={120} required value={name} onChange={(event) => setName(event.target.value)} /></Field>
-      <p className="text-sm text-muted">{category.type === 'expense' ? 'Expense' : 'Income'} category. Its type cannot change.</p>
-      {error === null ? null : <p className="rounded-xl border border-danger/40 bg-danger-muted px-4 py-3 text-sm text-danger" role="alert">{error}</p>}
-      <div className="flex flex-col-reverse gap-3 pt-2 sm:flex-row sm:justify-end"><Button variant="secondary" type="button" onClick={onClose} disabled={updateCategory.isPending}>Cancel</Button><Button type="submit" disabled={trimmedName.length === 0 || trimmedName === category.name || updateCategory.isPending}>{updateCategory.isPending ? 'Saving...' : 'Save changes'}</Button></div>
-    </form>
-  </CategoryModal>;
+function PasswordSettings(): JSX.Element {
+  const changePassword = useChangePasswordMutation(); const [isEditing, setIsEditing] = useState(false); const [currentPassword, setCurrentPassword] = useState(''); const [newPassword, setNewPassword] = useState(''); const [confirmation, setConfirmation] = useState(''); const [error, setError] = useState<string | null>(null); const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const startEditing = useCallback((): void => { setCurrentPassword(''); setNewPassword(''); setConfirmation(''); setError(null); setSuccessMessage(null); setIsEditing(true); }, []);
+  const cancelEditing = useCallback((): void => { setError(null); setIsEditing(false); }, []);
+  const handleSubmit = useCallback(async (event: React.FormEvent<HTMLFormElement>): Promise<void> => { event.preventDefault(); if (changePassword.isPending) return; if (newPassword !== confirmation) { setError('New password and confirmation must match'); return; } setError(null); try { await changePassword.mutateAsync({ current_password: currentPassword, new_password: newPassword }); setSuccessMessage('Password changed'); setIsEditing(false); } catch (caughtError) { setError(caughtError instanceof ApiError ? caughtError.detail : 'Could not change password'); } }, [changePassword, confirmation, currentPassword, newPassword]);
+  return <section id="security"><SettingsCard description="Keep your account protected with a strong password." error={error} icon={<KeyRound size={20} />} isEditing={isEditing} isPending={changePassword.isPending} onCancel={cancelEditing} onEdit={startEditing} successMessage={successMessage} title="Security">{isEditing ? <form className="flex flex-col gap-4" onSubmit={handleSubmit}><Field><Field.Label>Current password</Field.Label><input autoComplete="current-password" autoFocus className={fieldControlClassName} minLength={8} required type="password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} /></Field><Field><Field.Label>New password</Field.Label><input autoComplete="new-password" className={fieldControlClassName} minLength={8} required type="password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} /></Field><Field><Field.Label>Confirm new password</Field.Label><input autoComplete="new-password" className={fieldControlClassName} minLength={8} required type="password" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} /></Field><Button className="self-start" type="submit" disabled={changePassword.isPending}>{changePassword.isPending ? 'Saving...' : 'Change password'}</Button></form> : <p className="font-medium text-foreground">Password protected</p>}</SettingsCard></section>;
 }
 
-function CategoryModal({ title, onClose, isPending, children }: { title: string; onClose: () => void; isPending: boolean; children: React.ReactNode }): JSX.Element {
-  return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-background/80 p-0 backdrop-blur-sm sm:items-center sm:p-4" role="presentation">
-      <section aria-labelledby="category-modal-title" aria-modal="true" className="w-full max-w-lg rounded-t-3xl border border-border bg-surface p-4 shadow-2xl sm:rounded-2xl sm:p-6" role="dialog">
-        <div className="mb-5 flex items-start justify-between gap-4"><h2 className="text-2xl font-semibold text-foreground" id="category-modal-title">{title}</h2><Button size="icon" variant="ghost" type="button" aria-label="Close category dialog" onClick={onClose} disabled={isPending}><X size={18} /></Button></div>
-        {children}
-      </section>
-    </div>
-  );
+function accountLabel(accounts: AccountRead[], accountId: string | null): string { if (accountId === null) return 'No default account'; const account = accounts.find((item) => item.id === accountId); return account === undefined ? 'Unavailable account' : `${account.name} (${account.currency})`; }
+function categoryLabel(categories: CategoryRead[], categoryId: string | null): string { if (categoryId === null) return 'No default category'; const category = categories.find((item) => item.id === categoryId); return category === undefined ? 'Unavailable category' : `${category.name} (${category.type})`; }
+
+function PreferenceSettings({ accounts, categories, defaultAccountId, defaultCategoryId }: { accounts: AccountRead[]; categories: CategoryRead[]; defaultAccountId: string | null; defaultCategoryId: string | null }): JSX.Element {
+  const updatePreferences = useUpdatePreferencesMutation(); const [isEditing, setIsEditing] = useState(false); const [accountId, setAccountId] = useState(defaultAccountId ?? ''); const [categoryId, setCategoryId] = useState(defaultCategoryId ?? ''); const [error, setError] = useState<string | null>(null); const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const startEditing = useCallback((): void => { setAccountId(defaultAccountId ?? ''); setCategoryId(defaultCategoryId ?? ''); setError(null); setSuccessMessage(null); setIsEditing(true); }, [defaultAccountId, defaultCategoryId]);
+  const cancelEditing = useCallback((): void => { setError(null); setIsEditing(false); }, []);
+  const handleSubmit = useCallback(async (event: React.FormEvent<HTMLFormElement>): Promise<void> => { event.preventDefault(); if (updatePreferences.isPending) return; setError(null); try { await updatePreferences.mutateAsync({ default_account_id: accountId || null, default_category_id: categoryId || null }); setSuccessMessage('Transaction defaults saved'); setIsEditing(false); } catch (caughtError) { setError(caughtError instanceof ApiError ? caughtError.detail : 'Could not update transaction defaults'); } }, [accountId, categoryId, updatePreferences]);
+  return <section id="defaults"><SettingsCard description="Preselect values when you record a transaction." error={error} icon={<Settings2 size={20} />} isEditing={isEditing} isPending={updatePreferences.isPending} onCancel={cancelEditing} onEdit={startEditing} successMessage={successMessage} title="Transaction defaults">{isEditing ? <form className="flex flex-col gap-4" onSubmit={handleSubmit}><Field><Field.Label>Preferred account</Field.Label><select autoFocus className={fieldControlClassName} value={accountId} onChange={(event) => setAccountId(event.target.value)}><option value="">No default account</option>{accounts.filter((account) => account.archived_at === null).map((account) => <option key={account.id} value={account.id}>{account.name} ({account.currency})</option>)}</select></Field><Field><Field.Label>Preferred category</Field.Label><select className={fieldControlClassName} value={categoryId} onChange={(event) => setCategoryId(event.target.value)}><option value="">No default category</option>{categories.map((category) => <option key={category.id} value={category.id}>{category.name} ({category.type})</option>)}</select></Field><Button className="self-start" type="submit" disabled={updatePreferences.isPending}>{updatePreferences.isPending ? 'Saving...' : 'Save changes'}</Button></form> : <dl className="grid gap-4 sm:grid-cols-2"><div><dt className="text-xs font-semibold uppercase tracking-wide text-muted">Preferred account</dt><dd className="mt-1 break-words font-medium text-foreground">{accountLabel(accounts, defaultAccountId)}</dd></div><div><dt className="text-xs font-semibold uppercase tracking-wide text-muted">Preferred category</dt><dd className="mt-1 break-words font-medium text-foreground">{categoryLabel(categories, defaultCategoryId)}</dd></div></dl>}</SettingsCard></section>;
 }
 
-export default function SettingsPage(): JSX.Element {
-  return <AuthenticatedApp><Suspense fallback={<SuspenseLoader label="Loading categories" />}><CategorySettings /></Suspense></AuthenticatedApp>;
+function CategoriesLink(): JSX.Element { return <Panel><Panel.Header><div className="flex items-center gap-3"><div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary-muted text-primary"><Tags size={20} /></div><div><Panel.Title>Categories</Panel.Title><p className="mt-1 text-sm text-muted">Organize income and expense categories.</p></div></div></Panel.Header><Panel.Body><Link className="flex min-h-11 items-center justify-between rounded-xl border border-border px-4 text-sm font-semibold text-foreground transition hover:border-primary/60 hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background" href="/settings/categories"><span>Manage categories</span><ChevronRight size={18} /></Link></Panel.Body></Panel>; }
+
+function GeneralSettings(): JSX.Element {
+  const { token, user } = useAuth(); const authToken = requireToken(token); if (user === null) throw new Error('Settings require current user'); const { data: accounts } = useAccountsQuery(authToken, user.id); const { data: categories } = useCategoriesQuery(authToken, user.id);
+  return <div className="flex w-full flex-col gap-8 pb-20 lg:pb-0"><header><h1 className="text-3xl font-bold tracking-tight text-foreground sm:text-4xl">Account settings</h1><p className="mt-2 text-base text-muted">Manage profile, security, and transaction preferences.</p></header><div className="grid gap-6 lg:grid-cols-[13rem_minmax(0,1fr)] lg:items-start"><SettingsNav /><div className="flex max-w-3xl flex-col gap-5"><ProfileSettings displayName={user.display_name} email={user.email} /><PasswordSettings /><PreferenceSettings accounts={accounts} categories={categories} defaultAccountId={user.default_account_id} defaultCategoryId={user.default_category_id} /><CategoriesLink /></div></div></div>;
 }
+
+export default function SettingsPage(): JSX.Element { return <AuthenticatedApp><Suspense fallback={<SuspenseLoader label="Loading settings" />}><GeneralSettings /></Suspense></AuthenticatedApp>; }

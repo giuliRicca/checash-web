@@ -1,13 +1,23 @@
 'use client';
 
+import dynamic from 'next/dynamic';
 import { Suspense, useCallback, useState } from 'react';
 
 import { SuspenseLoader } from '~components/SuspenseLoader';
 import { formatMoneyWithCurrency } from '@/lib/money/format';
+import { PaginatedActivityList, useActivityQuery } from '~features/activity';
 import { AuthenticatedApp, useAuth } from '~features/auth';
-import { AccountCreateModal, AccountsOverview, FirstAccountOnboarding, useAccountsQuery, useNetWorthQuery } from '~features/accounts';
+import { AccountCreateModal, AccountsOverview, FirstAccountOnboarding, useAccountsQuery, useNetWorthHistoryQuery, useNetWorthQuery } from '~features/accounts';
 import { useMonthSummaryQuery } from '~features/transactions';
-import type { Currency, NetWorthRead, TransactionMonthSummaryRead } from '~types/api';
+import type { Currency, NetWorthHistoryRead, NetWorthRead, TransactionMonthSummaryRead } from '~types/api';
+
+const NetWorthGrowthChart = dynamic(
+  () => import('./NetWorthGrowthChart').then((module) => module.NetWorthGrowthChart),
+  {
+    loading: () => <div className="h-80 animate-pulse rounded-2xl border border-border bg-surface" aria-label="Loading net worth growth" />,
+    ssr: false,
+  },
+);
 
 function requireToken(token: string | null, feature: string): string {
   if (token === null) {
@@ -23,7 +33,9 @@ function DashboardContent(): JSX.Element {
 
   const { data: accounts } = useAccountsQuery(authToken, user.id);
   const { data: netWorth } = useNetWorthQuery(authToken, user.id);
+  const { data: netWorthHistory } = useNetWorthHistoryQuery(authToken, user.id);
   const { data: monthSummary } = useMonthSummaryQuery(authToken, user.id);
+  const { activity, pageNumber, previousPage, nextPage, hasPreviousPage, hasNextPage, isLoadingPage, pageError } = useActivityQuery(authToken, user.id);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
 
   const handleOpenCreateModal = useCallback((): void => {
@@ -37,7 +49,8 @@ function DashboardContent(): JSX.Element {
   return (
     <div className="flex w-full flex-col gap-8 pb-20 lg:pb-0">
       <DashboardHeader />
-      <DashboardSummary netWorth={netWorth} monthSummary={monthSummary} accountCount={accounts.length} />
+      <DashboardSummary netWorth={netWorth} netWorthHistory={netWorthHistory} monthSummary={monthSummary} accountCount={accounts.length} />
+      <PaginatedActivityList activity={activity} emptyMessage="No activity yet. Add a transaction or transfer to see it here." hasNextPage={hasNextPage} hasPreviousPage={hasPreviousPage} isLoadingPage={isLoadingPage} onNextPage={nextPage} onPreviousPage={previousPage} pageError={pageError} pageNumber={pageNumber} title="Latest activity" />
       <AccountsOverview accounts={accounts} />
       {accounts.length === 0 ? <FirstAccountOnboarding onCreateAccount={handleOpenCreateModal} /> : null}
       {isCreateModalOpen ? <AccountCreateModal onClose={handleCloseCreateModal} /> : null}
@@ -62,28 +75,32 @@ function DashboardHeader(): JSX.Element {
 
 interface DashboardSummaryProps {
   netWorth: NetWorthRead;
+  netWorthHistory: NetWorthHistoryRead;
   monthSummary: TransactionMonthSummaryRead;
   accountCount: number;
 }
 
-function DashboardSummary({ netWorth, monthSummary, accountCount }: DashboardSummaryProps): JSX.Element {
+function DashboardSummary({ netWorth, netWorthHistory, monthSummary, accountCount }: DashboardSummaryProps): JSX.Element {
   const [currency, setCurrency] = useState<Currency>('ARS');
   const netWorthValue = currency === 'ARS' ? netWorth.total_ars : netWorth.total_usd;
   const incomeValue = currency === 'ARS' ? monthSummary.income_ars : monthSummary.income_usd;
   const expenseValue = currency === 'ARS' ? monthSummary.expense_ars : monthSummary.expense_usd;
 
   return (
-    <section className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
-      <NetWorthCard
-        accountCount={accountCount}
-        currency={currency}
-        value={netWorthValue}
-        onCurrencyChange={setCurrency}
-      />
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-1">
-        <MonthlyFlowCard label="Income this month" tone="success" value={formatMoneyWithCurrency(incomeValue, currency)} />
-        <MonthlyFlowCard label="Expenses this month" tone="danger" value={formatMoneyWithCurrency(expenseValue, currency)} />
+    <section className="flex flex-col gap-4">
+      <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
+        <NetWorthCard
+          accountCount={accountCount}
+          currency={currency}
+          value={netWorthValue}
+          onCurrencyChange={setCurrency}
+        />
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-1">
+          <MonthlyFlowCard label="Income this month" tone="success" value={formatMoneyWithCurrency(incomeValue, currency)} />
+          <MonthlyFlowCard label="Expenses this month" tone="danger" value={formatMoneyWithCurrency(expenseValue, currency)} />
+        </div>
       </div>
+      <NetWorthGrowthChart currency={currency} history={netWorthHistory} />
     </section>
   );
 }
