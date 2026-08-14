@@ -1,10 +1,17 @@
 import { expect, test } from '@playwright/test';
 
 test('shows login form for unauthenticated visitor', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/dashboard?auth=login');
 
-  await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByRole('button', { name: 'Log in' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Bienvenido de nuevo' })).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole('button', { name: 'Ingresar' })).toBeVisible();
+});
+
+test('opens registration form from registration link', async ({ page }) => {
+  await page.goto('/dashboard?auth=register');
+
+  await expect(page.getByRole('heading', { name: 'Creá tu cuenta' })).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole('button', { name: 'Crear cuenta' })).toBeVisible();
 });
 
 test('passes dynamic route account ID to account APIs', async ({ page }) => {
@@ -85,7 +92,7 @@ test('shows current-month net worth growth on dashboard', async ({ page }) => {
     await route.fulfill({ status: 404, json: { detail: 'Not found' } });
   });
 
-  await page.goto('/');
+  await page.goto('/dashboard');
 
   await expect(page.getByText('Net worth growth')).toBeVisible();
   await expect(page.getByText('+ARS 500,00')).toBeVisible();

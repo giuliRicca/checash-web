@@ -7,6 +7,7 @@ import { SuspenseLoader } from '~components/SuspenseLoader';
 import { formatMoneyWithCurrency } from '@/lib/money/format';
 import { PaginatedActivityList, useActivityQuery } from '~features/activity';
 import { AuthenticatedApp, useAuth } from '~features/auth';
+import type { AuthMode } from '~features/auth/components/AuthCard';
 import { AccountCreateModal, AccountsOverview, FirstAccountOnboarding, useAccountsQuery, useNetWorthHistoryQuery, useNetWorthQuery } from '~features/accounts';
 import { useMonthSummaryQuery } from '~features/transactions';
 import type { Currency, NetWorthHistoryRead, NetWorthRead, TransactionMonthSummaryRead } from '~types/api';
@@ -174,9 +175,13 @@ function MonthlyFlowCard({ label, tone, value }: MonthlyFlowCardProps): JSX.Elem
   );
 }
 
-export function Dashboard(): JSX.Element {
+interface DashboardProps {
+  authMode?: AuthMode;
+}
+
+export function Dashboard({ authMode = 'login' }: DashboardProps): JSX.Element {
   return (
-    <AuthenticatedApp>
+    <AuthenticatedApp initialAuthMode={authMode}>
       <Suspense fallback={<SuspenseLoader label="Loading dashboard" />}>
         <DashboardContent />
       </Suspense>

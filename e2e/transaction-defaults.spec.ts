@@ -21,7 +21,7 @@ test('uses valid saved defaults for a new expense transaction', async ({ page })
     return route.fulfill({ status: 404, json: { detail: 'Not found' } });
   });
 
-  await page.goto('/');
+  await page.goto('/dashboard');
   await page.getByRole('button', { name: /add transaction/i }).click();
 
   await expect(page.getByLabel('Account')).toHaveValue('account-2');

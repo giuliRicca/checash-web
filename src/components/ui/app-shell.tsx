@@ -98,7 +98,7 @@ export function AppShell({ children, onLogout }: AppShellProps): JSX.Element {
           </div>
 
           <nav className="hidden items-center gap-2 lg:flex" aria-label="Primary navigation">
-            <NavItem href="/" icon={<LayoutDashboard size={16} />} label="Dashboard" isActive={pathname === '/'} />
+            <NavItem href="/dashboard" icon={<LayoutDashboard size={16} />} label="Dashboard" isActive={pathname === '/dashboard'} />
             <NavItem href="/chat" icon={<MessageCircle size={16} />} label="Chat" isActive={pathname === '/chat'} />
             <NavItem href="/budgets" icon={<BarChart3 size={16} />} label="Budgets" isActive={pathname === '/budgets'} />
             <NavItem href="/accounts" icon={<Landmark size={16} />} label="Accounts" isActive={isAccountsActive} />
@@ -160,7 +160,7 @@ export function AppShell({ children, onLogout }: AppShellProps): JSX.Element {
       </button>
       <nav className="fixed inset-x-0 bottom-0 z-20 border-t border-border bg-background/95 px-3 pb-[calc(0.5rem+env(safe-area-inset-bottom))] pt-2 backdrop-blur lg:hidden" aria-label="Mobile navigation">
         <div className="mx-auto grid max-w-md grid-cols-4 gap-1">
-          <MobileNavItem href="/" icon={<LayoutDashboard size={18} />} label="Home" isActive={pathname === '/'} />
+          <MobileNavItem href="/dashboard" icon={<LayoutDashboard size={18} />} label="Home" isActive={pathname === '/dashboard'} />
           <MobileNavItem href="/chat" icon={<MessageCircle size={18} />} label="Chat" isActive={pathname === '/chat'} />
           <MobileNavItem href="/budgets" icon={<BarChart3 size={18} />} label="Budget" isActive={pathname === '/budgets'} />
           <MobileNavItem href="/accounts" icon={<Landmark size={18} />} label="Accounts" isActive={isAccountsActive} />

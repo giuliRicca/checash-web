@@ -28,7 +28,7 @@ test('edits and deletes a transaction from dashboard activity', async ({ page })
     return route.fulfill({ status: 404, json: { detail: 'Not found' } });
   });
 
-  await page.goto('/');
+  await page.goto('/dashboard');
   await page.getByRole('button', { name: 'Edit' }).click();
   await page.getByLabel('Amount').fill('30');
   await page.getByRole('button', { name: 'Save transaction' }).click();
